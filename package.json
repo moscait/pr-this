@@ -1,0 +1,307 @@
+{
+  "name": "pr-this",
+  "displayName": "PR This — AI Change Lens",
+  "description": "Understand any commit, branch comparison, or working change at a glance. Zoom from a one-line intent down to line-level explanations, powered by local or cloud AI.",
+  "version": "0.1.0",
+  "publisher": "moscait",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization",
+    "Machine Learning",
+    "Other"
+  ],
+  "keywords": [
+    "code review",
+    "git",
+    "commit",
+    "pull request",
+    "ai",
+    "ollama",
+    "diff"
+  ],
+  "icon": "media/icon.png",
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "PR This runs git in the workspace and sends its changes to an AI provider, so it only runs in trusted workspaces."
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prThis",
+          "title": "PR This",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "prThis": [
+        {
+          "id": "prThis.changes",
+          "name": "Changes",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "prThis.changes",
+        "contents": "Open a folder that is a git repository to explore its changes.\n[Open Change Lens](command:prThis.open)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "prThis.open",
+        "title": "Open Change Lens",
+        "category": "PR This",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "prThis.reviewWorkingTree",
+        "title": "Explain Uncommitted Changes",
+        "category": "PR This",
+        "icon": "$(telescope)"
+      },
+      {
+        "command": "prThis.reviewCommit",
+        "title": "Explain a Commit…",
+        "category": "PR This",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "prThis.reviewRange",
+        "title": "Explain Branch / Range Comparison…",
+        "category": "PR This",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "prThis.reviewTimelineCommit",
+        "title": "Explain this Commit (PR This)",
+        "category": "PR This"
+      },
+      {
+        "command": "prThis.configureProvider",
+        "title": "Configure AI Provider",
+        "category": "PR This",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "prThis.refreshCommits",
+        "title": "Refresh",
+        "category": "PR This",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prThis.clearCache",
+        "title": "Clear Explanation Cache",
+        "category": "PR This"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "prThis.reviewRange",
+          "when": "view == prThis.changes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "prThis.refreshCommits",
+          "when": "view == prThis.changes",
+          "group": "navigation@2"
+        },
+        {
+          "command": "prThis.configureProvider",
+          "when": "view == prThis.changes",
+          "group": "navigation@3"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "prThis.reviewWorkingTree",
+          "when": "scmProvider == git",
+          "group": "navigation@9"
+        }
+      ],
+      "timeline/item/context": [
+        {
+          "command": "prThis.reviewTimelineCommit",
+          "when": "timelineItem =~ /git:file:commit\\b/",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "prThis.reviewTimelineCommit",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PR This",
+      "properties": {
+        "prThis.provider": {
+          "type": "string",
+          "default": "ollama",
+          "enum": [
+            "ollama",
+            "lmstudio",
+            "openaiCompatible",
+            "openai",
+            "anthropic",
+            "gemini"
+          ],
+          "enumDescriptions": [
+            "Ollama running locally (OpenAI-compatible endpoint)",
+            "LM Studio local server",
+            "Any OpenAI-compatible server (vLLM, llama.cpp, LiteLLM, OpenRouter, …)",
+            "OpenAI",
+            "Anthropic Claude",
+            "Google Gemini"
+          ],
+          "description": "AI provider used to explain changes. Can only be set in user settings, so a workspace cannot redirect your API keys.",
+          "scope": "machine"
+        },
+        "prThis.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model name. Leave empty to use the provider default. Can only be set in user settings.",
+          "scope": "machine"
+        },
+        "prThis.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Override the provider base URL (e.g. http://localhost:11434/v1). Can only be set in user settings, so a workspace cannot send your API key to another server.",
+          "scope": "machine"
+        },
+        "prThis.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature."
+        },
+        "prThis.reasoningEffort": {
+          "type": "string",
+          "default": "medium",
+          "enum": [
+            "default",
+            "low",
+            "medium",
+            "high"
+          ],
+          "enumDescriptions": [
+            "Use the provider's default",
+            "Fastest and cheapest; least thinking",
+            "Balanced (recommended)",
+            "Most thorough; slowest"
+          ],
+          "description": "How long reasoning models think before answering: current Claude models, OpenAI reasoning models (o-series, GPT-5), and Ollama thinking models (set to 'high' to enable thinking on Ollama; off otherwise for faster local responses). Lower is faster and cheaper; higher can catch more subtle problems."
+        },
+        "prThis.maxDiffChars": {
+          "type": "number",
+          "default": 60000,
+          "description": "Maximum characters of diff sent to the model for the overview (local providers default to 24000 unless explicitly set). Can only be set in user settings.",
+          "scope": "machine"
+        },
+        "prThis.ollamaContextLength": {
+          "type": "number",
+          "default": 32768,
+          "description": "Maximum context window (num_ctx) requested from Ollama; automatically sized down to 8k/16k/32k tiers when the prompt is smaller."
+        },
+        "prThis.excludeFromAI": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/package-lock.json",
+            "**/yarn.lock",
+            "**/pnpm-lock.yaml",
+            "**/Cargo.lock",
+            "**/go.sum",
+            "**/poetry.lock",
+            "**/*.min.js",
+            "**/*.min.css",
+            "**/*.map",
+            "**/*.snap"
+          ],
+          "description": "Glob patterns whose diffs are listed but not sent to the AI (lock files, generated code, …). Secret files (.env, keys, certificates, .npmrc, …) are always left out as well; see prThis.sendSecretFiles."
+        },
+        "prThis.sendSecretFiles": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Send the diffs of files that commonly hold secrets (.env, private keys, certificates, .npmrc, .netrc, …) to the AI. Off by default; templates such as .env.example and public keys are always sent. Can only be set in user settings."
+        },
+        "prThis.explanationLanguage": {
+          "type": "string",
+          "default": "English",
+          "maxLength": 40,
+          "description": "Language the AI should write explanations in."
+        },
+        "prThis.commitCount": {
+          "type": "number",
+          "default": 50,
+          "description": "Number of recent commits to list."
+        },
+        "prThis.backgroundPrewarm": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "always",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Pre-warm in the background only when using a local model (Ollama, LM Studio, or local OpenAI-compatible server)",
+            "Pre-warm in the background for all providers",
+            "Never run background pre-warming"
+          ],
+          "description": "Pre-compute explanations in the background (HEAD commit and top review-focus files) while idle, and immediately yield whenever you start an interactive action. Can only be set in user settings.",
+          "scope": "machine"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:webview && npm run build:ext",
+    "build:ext": "node esbuild.mjs --production",
+    "build:webview": "vite build --config webview-ui/vite.config.mts",
+    "watch:ext": "node esbuild.mjs --watch",
+    "watch:webview": "vite build --watch --config webview-ui/vite.config.mts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
+    "lint": "eslint src webview-ui/src",
+    "test": "node esbuild.mjs --tests && node --test 'dist-test/**/*.js'",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/vscode": "^1.90.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "@vscode/vsce": "^4.1.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.15.0",
+    "framer-motion": "^11.18.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vite": "^8.3.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moscait/pr-this.git"
+  }
+}

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Production build outputs
+dist/
+dist-test/
+out/
+build/
+
+# VS Code Extension packaging
+*.vsix
+.vscode-test/
+
+# Logs & cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+.eslintcache
+.cache/
+
+# Environment / local configs
+.env*
+!.env.example
+
+# Operating System files
+.DS_Store
+Thumbs.db

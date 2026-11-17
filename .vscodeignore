@@ -1,0 +1,14 @@
+# Only dist/ (extension + webview bundle), media/, README, LICENSE and package.json ship.
+.vscode/**
+.github/**
+src/**
+webview-ui/**
+dist-test/**
+node_modules/**
+**/*.map
+**/*.ts
+esbuild.mjs
+eslint.config.mjs
+tsconfig.json
+.gitignore
+REVIEW_FIXES.md
