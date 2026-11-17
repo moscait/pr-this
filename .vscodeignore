@@ -11,4 +11,3 @@ esbuild.mjs
 eslint.config.mjs
 tsconfig.json
 .gitignore
-REVIEW_FIXES.md

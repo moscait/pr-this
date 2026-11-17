@@ -1,4 +1,5 @@
 import type { DiffFile, DiffHunk } from '../shared/types';
+import { describeImageMeta, isImagePath } from './image';
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/;
 
@@ -294,9 +295,9 @@ export function markExcluded(files: DiffFile[], globs: string[], opts: { sendSec
   for (const f of files) {
     if (f.excluded) continue; // already left out (e.g. too large to read)
     const paths = f.oldPath ? [f.path, f.oldPath] : [f.path];
-    if (f.binary) exclude(f, 'binary file');
-    else if (!opts.sendSecretFiles && paths.some(isSecretPath)) exclude(f, 'may contain secrets (see prThis.sendSecretFiles)');
+    if (!opts.sendSecretFiles && paths.some(isSecretPath)) exclude(f, 'may contain secrets (see prThis.sendSecretFiles)');
     else if (paths.some((p) => res.some((r) => r.test(p)))) exclude(f, 'matches prThis.excludeFromAI');
+    else if (f.binary && !isImagePath(f.path) && !(f.oldPath && isImagePath(f.oldPath)) && !f.image) exclude(f, 'binary file');
   }
 }
 
@@ -385,8 +386,9 @@ function trimHunkContext(lines: DiffFile['hunks'][number]['lines'], maxContext: 
 export function renderFileDiff(f: DiffFile, maxChars = Infinity, opts: boolean | RenderDiffOptions = false): string {
   const o: RenderDiffOptions = typeof opts === 'boolean' ? { numberHunks: opts } : opts;
   const redact = !o.sendSecretFiles;
-  const head = `=== ${f.status.toUpperCase()} ${f.oldPath ? `${f.oldPath} -> ` : ''}${f.path} (+${f.additions} -${f.deletions})`;
-  if (f.binary) return head + '\n[binary file]';
+  const imgNote = f.image ? ` [${describeImageMeta(f.image.before, f.image.after)}]` : '';
+  const head = `=== ${f.status.toUpperCase()} ${f.oldPath ? `${f.oldPath} -> ` : ''}${f.path} (+${f.additions} -${f.deletions})${imgNote}`;
+  if (f.binary) return head + `\n[${f.image ? describeImageMeta(f.image.before, f.image.after) : 'binary file'}]`;
   if (f.excluded) return head + `\n[diff omitted: ${f.excludedReason ?? 'excluded from AI'}]`;
   if (o.compactDeletions && f.status === 'deleted' && f.additions === 0 && f.deletions > 30) {
     return `${head}\n[entire file deleted: ${f.deletions} lines removed]`;

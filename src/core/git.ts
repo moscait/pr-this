@@ -2,9 +2,12 @@ import { execFile } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ChangeSession, CommitInfo, DiffFile } from '../shared/types';
-import { markExcluded, parseDiff, redactFileSecrets, redactSecrets } from './diff';
+import { isSecretPath, markExcluded, parseDiff, redactFileSecrets, redactSecrets } from './diff';
+import { buildImageSide, isImagePath, MAX_PREVIEW_IMAGE_BYTES } from './image';
 
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+/** Maximum number of image files to inspect metadata for in a session. */
+export const MAX_IMAGE_FILES = 100;
 /** Untracked files read for a working-tree session; the rest are named in a notice. */
 export const MAX_UNTRACKED = 200;
 /** Untracked files larger than this are listed but not read. */
@@ -26,23 +29,122 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
-export function git(cwd: string, args: string[], okCodes: number[] = []): Promise<string> {
+const DEFAULT_GIT_FLAGS = ['-c', 'core.quotepath=false', '-c', 'color.ui=false', '-c', 'core.fsmonitor=false'];
+
+interface RunGitOptions<T extends 'utf8' | 'buffer'> {
+  encoding: T;
+  okCodes?: number[];
+  maxBuffer?: number;
+}
+
+function runGit(cwd: string, args: string[], options: RunGitOptions<'buffer'>): Promise<Buffer>;
+function runGit(cwd: string, args: string[], options: RunGitOptions<'utf8'>): Promise<string>;
+function runGit(
+  cwd: string,
+  args: string[],
+  options: { encoding: 'utf8' | 'buffer'; okCodes?: number[]; maxBuffer?: number },
+): Promise<string | Buffer> {
+  const { encoding, okCodes = [], maxBuffer = 256 * 1024 * 1024 } = options;
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      ['-c', 'core.quotepath=false', '-c', 'color.ui=false', '-c', 'core.fsmonitor=false', ...args],
-      { cwd, maxBuffer: 256 * 1024 * 1024, env: { ...process.env, GIT_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0' } },
+      [...DEFAULT_GIT_FLAGS, ...args],
+      { cwd, encoding, maxBuffer, env: { ...process.env, GIT_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0' } },
       (err, stdout, stderr) => {
         if (err) {
           const code = (err as NodeJS.ErrnoException & { code?: number | string }).code;
           if (typeof code === 'number' && okCodes.includes(code)) return resolve(stdout);
           if (code === 'ENOENT') return reject(new Error('git executable not found on PATH.'));
-          return reject(new Error((stderr || err.message).trim()));
+          const errStr = Buffer.isBuffer(stderr) ? stderr.toString('utf8') : (stderr || err.message);
+          return reject(new Error(errStr.trim()));
         }
         resolve(stdout);
       },
     );
   });
+}
+
+export function git(cwd: string, args: string[], okCodes: number[] = []): Promise<string> {
+  return runGit(cwd, args, { encoding: 'utf8', okCodes });
+}
+
+export function gitBuffer(cwd: string, args: string[]): Promise<Buffer> {
+  return runGit(cwd, args, { encoding: 'buffer', maxBuffer: MAX_PREVIEW_IMAGE_BYTES + 1024 * 1024 });
+}
+
+export interface ImageRefResult {
+  buf?: Buffer;
+  bytes?: number;
+  unavailable?: 'too-large' | 'unreadable' | 'symlink';
+}
+
+export async function readImageRef(
+  root: string,
+  ref: string | undefined,
+  relPath: string,
+): Promise<ImageRefResult | undefined> {
+  if (ref === EMPTY_TREE) return undefined;
+  try {
+    if (ref) {
+      try {
+        const sizeStr = (await git(root, ['cat-file', '-s', `${ref}:${relPath}`])).trim();
+        const size = parseInt(sizeStr, 10);
+        if (Number.isFinite(size) && size > MAX_PREVIEW_IMAGE_BYTES) {
+          return { bytes: size, unavailable: 'too-large' };
+        }
+      } catch {
+        /* cat-file may fail on non-blob refs; fall through to gitBuffer */
+      }
+      try {
+        const buf = await gitBuffer(root, ['show', `${ref}:${relPath}`]);
+        return { buf, bytes: buf.length };
+      } catch {
+        return { unavailable: 'unreadable' };
+      }
+    }
+    const full = path.join(root, relPath);
+    const stat = await fs.lstat(full);
+    if (stat.isSymbolicLink()) return { unavailable: 'symlink' };
+    if (!stat.isFile()) return { unavailable: 'unreadable' };
+    if (stat.size > MAX_PREVIEW_IMAGE_BYTES) {
+      return { bytes: stat.size, unavailable: 'too-large' };
+    }
+    const buf = await fs.readFile(full);
+    return { buf, bytes: buf.length };
+  } catch {
+    return { unavailable: 'unreadable' };
+  }
+}
+
+async function populateImages(
+  root: string,
+  leftRef: string,
+  rightRef: string | undefined,
+  files: DiffFile[],
+): Promise<string | undefined> {
+  const candidates = files.filter(
+    (f) =>
+      !f.excluded &&
+      !isSecretPath(f.path) &&
+      !(f.oldPath && isSecretPath(f.oldPath)) &&
+      (isImagePath(f.path) || (f.oldPath ? isImagePath(f.oldPath) : false)),
+  );
+  if (!candidates.length) return undefined;
+  const imgFiles = candidates.slice(0, MAX_IMAGE_FILES);
+  await mapLimit(imgFiles, 4, async (f) => {
+    const oldP = f.oldPath ?? f.path;
+    const [beforeRes, afterRes] = await Promise.all([
+      f.status === 'added' ? Promise.resolve(undefined) : readImageRef(root, leftRef, oldP),
+      f.status === 'deleted' ? Promise.resolve(undefined) : readImageRef(root, rightRef, f.path),
+    ]);
+    const before = beforeRes ? buildImageSide(beforeRes.buf, oldP, false, beforeRes.bytes, beforeRes.unavailable) : undefined;
+    const after = afterRes ? buildImageSide(afterRes.buf, f.path, false, afterRes.bytes, afterRes.unavailable) : undefined;
+    if (before || after) f.image = { before, after };
+  });
+  if (candidates.length > MAX_IMAGE_FILES) {
+    return `Only ${MAX_IMAGE_FILES} of ${candidates.length} image files were analyzed. The remaining images were skipped.`;
+  }
+  return undefined;
 }
 
 export async function findRepoRoot(dir: string): Promise<string | undefined> {
@@ -133,16 +235,21 @@ function diffArgs(...refs: string[]): string[] {
   return ['diff', '-M', '--no-ext-diff', '--no-textconv', '--no-color', '-U3', ...refs];
 }
 
-function finish(
+async function finish(
   base: Omit<ChangeSession, 'files' | 'additions' | 'deletions' | 'repoName' | 'id'> & { id?: string },
   diffText: string,
   exclude: string[],
   sendSecretFiles: boolean,
   extraFiles: DiffFile[] = [],
-): ChangeSession {
+  options?: { images?: boolean },
+): Promise<ChangeSession> {
   const files = [...parseDiff(diffText), ...extraFiles];
   markExcluded(files, exclude, { sendSecretFiles });
-  const notices = base.notices ? [...base.notices] : undefined;
+  const notices = base.notices ? [...base.notices] : [];
+  if (options?.images !== false) {
+    const imageNotice = await populateImages(base.repoRoot, base.leftRef, base.rightRef, files);
+    if (imageNotice) notices.push(imageNotice);
+  }
   if (!sendSecretFiles) {
     // Count potential secrets for the user notice without mutating `files` in place,
     // so the local Lines UI matches the real file while `renderFileDiff` redacts AI prompts.
@@ -153,14 +260,12 @@ function finish(
       redacted += s.count + b.count;
     }
     if (redacted > 0) {
-      const msg = `Redacted ${redacted} potential secret value${redacted === 1 ? '' : 's'} from diff lines before sending to the AI.`;
-      if (notices) notices.push(msg);
-      else base = { ...base, notices: [msg] };
+      notices.push(`Redacted ${redacted} potential secret value${redacted === 1 ? '' : 's'} from diff lines before sending to the AI.`);
     }
   }
   return {
     ...base,
-    ...(notices ? { notices } : {}),
+    ...(notices.length ? { notices } : {}),
     id: base.id ?? `${base.repoRoot}::${JSON.stringify(base.scope)}`,
     repoName: path.basename(base.repoRoot),
     files,
@@ -178,7 +283,13 @@ export function sameChange(a: ChangeSession, b: ChangeSession): boolean {
   return a.scope.kind !== 'working' && a.leftRef === b.leftRef && a.rightRef === b.rightRef;
 }
 
-export async function commitSession(root: string, ref: string, exclude: string[], sendSecretFiles = false): Promise<ChangeSession> {
+export async function commitSession(
+  root: string,
+  ref: string,
+  exclude: string[],
+  sendSecretFiles = false,
+  options?: { images?: boolean },
+): Promise<ChangeSession> {
   const sha = await resolve(root, ref);
   if (!sha) throw new Error(`Unknown commit: ${ref}`);
   const [commit] = parseLog(await git(root, ['show', '-s', LOG_FORMAT, sha]));
@@ -197,10 +308,19 @@ export async function commitSession(root: string, ref: string, exclude: string[]
     diff,
     exclude,
     sendSecretFiles,
+    [],
+    options,
   );
 }
 
-export async function rangeSession(root: string, base: string, head: string, exclude: string[], sendSecretFiles = false): Promise<ChangeSession> {
+export async function rangeSession(
+  root: string,
+  base: string,
+  head: string,
+  exclude: string[],
+  sendSecretFiles = false,
+  options?: { images?: boolean },
+): Promise<ChangeSession> {
   const headSha = await resolve(root, head);
   const baseSha = await resolve(root, base);
   if (!headSha) throw new Error(`Unknown ref: ${head}`);
@@ -228,10 +348,17 @@ export async function rangeSession(root: string, base: string, head: string, exc
     diff,
     exclude,
     sendSecretFiles,
+    [],
+    options,
   );
 }
 
-export async function workingSession(root: string, exclude: string[], sendSecretFiles = false): Promise<ChangeSession> {
+export async function workingSession(
+  root: string,
+  exclude: string[],
+  sendSecretFiles = false,
+  options?: { images?: boolean },
+): Promise<ChangeSession> {
   const head = (await resolve(root, 'HEAD')) ?? EMPTY_TREE;
   let diff = await git(root, diffArgs(head));
   const notices: string[] = [];
@@ -280,5 +407,6 @@ export async function workingSession(root: string, exclude: string[], sendSecret
     exclude,
     sendSecretFiles,
     tooLarge,
+    options,
   );
 }

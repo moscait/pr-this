@@ -18,6 +18,9 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | undefined {
       if (typeof m.path !== 'string' || !m.path || m.path.length > MAX_PATH_CHARS) return undefined;
       if (m.force !== undefined && typeof m.force !== 'boolean') return undefined;
       return { type: 'explainFile', path: m.path, force: m.force };
+    case 'loadImage':
+      if (typeof m.path !== 'string' || !m.path || m.path.length > MAX_PATH_CHARS) return undefined;
+      return { type: 'loadImage', path: m.path };
     case 'openDiff':
       if (typeof m.path !== 'string' || !m.path || m.path.length > MAX_PATH_CHARS) return undefined;
       return { type: 'openDiff', path: m.path };

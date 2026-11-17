@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState, type Dispatch } from 'react';
-import type { DiffFile, DiffHunk, HunkNote } from '../../../src/shared/types';
+import type { DiffFile, DiffHunk, HunkNote, ImageDiff, ImageSide } from '../../../src/shared/types';
+import { formatBytes, MAX_PREVIEW_IMAGE_BYTES } from '../../../src/shared/format';
 import type { Action, State } from '../state';
 import { DiffBar, ErrorCard, FileName, Shimmer, StatusBadge, Thinking, splitPath } from './common';
 import { Icon, SeverityIcon } from './Icons';
@@ -24,6 +25,13 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
     if (state.overview.status === 'loading') return;
     send({ type: 'explainFile', path: file.path });
   }, [file?.path, detail, state.overview.status]);
+
+  // Request image preview on demand when an image file is displayed without loaded pixels.
+  useEffect(() => {
+    if (!file || !file.image) return;
+    if (state.images[file.path]) return;
+    send({ type: 'loadImage', path: file.path });
+  }, [file?.path, file?.image, state.images]);
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
@@ -98,8 +106,9 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
               )}
             </section>
 
-            {file.binary && <p className="muted center">Binary file — no textual diff.</p>}
-            {!file.binary && !file.hunks.length && <p className="muted center">{file.excludedReason ? `Not shown: ${file.excludedReason}.` : 'No content changes.'}</p>}
+            {file.image && <ImagePreviewCard image={state.images[file.path] ?? file.image} />}
+            {file.binary && !file.image && <p className="muted center">Binary file — no textual diff.</p>}
+            {!file.binary && !file.hunks.length && !file.image && <p className="muted center">{file.excludedReason ? `Not shown: ${file.excludedReason}.` : 'No content changes.'}</p>}
 
             {file.hunks.map((h) => (
               <Hunk key={h.index} file={file} hunk={h} note={noteFor(h)} showNote={notes} pending={!d && detail?.status !== 'error'} />
@@ -108,6 +117,59 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+function ImageSideBox({ label, side, tone }: { label: string; side: ImageSide; tone: 'del' | 'add' }) {
+  const fmt = side.mime.replace('image/', '').replace('+xml', '').toUpperCase();
+  const dims = side.width && side.height ? `${side.width} × ${side.height} px` : undefined;
+  const reason =
+    side.unavailable === 'too-large'
+      ? `Too large to preview (${formatBytes(side.bytes)} > ${formatBytes(MAX_PREVIEW_IMAGE_BYTES)})`
+      : side.unavailable === 'symlink'
+      ? 'Preview unavailable (symbolic link)'
+      : side.unavailable === 'unreadable'
+      ? 'Preview unavailable (unreadable)'
+      : 'Preview unavailable';
+
+  return (
+    <div className={`img-pane img-pane-${tone}`}>
+      <div className="img-pane-head">
+        <span className={`img-badge img-badge-${tone}`}>{label}</span>
+        <span className="img-meta">
+          {fmt}
+          {dims ? ` · ${dims}` : ''} · {formatBytes(side.bytes)}
+        </span>
+      </div>
+      <div className="img-stage">
+        {side.dataUri ? <img src={side.dataUri} alt={`${label} preview`} /> : <span className="muted small">{reason}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ImagePreviewCard({ image }: { image: ImageDiff }) {
+  const before = image.before;
+  const after = image.after;
+  if (!before && !after) return null;
+  const delta = before && after ? after.bytes - before.bytes : undefined;
+  return (
+    <section className="img-diff card">
+      <div className="img-diff-header">
+        <span className="card-title" style={{ margin: 0 }}>
+          Visual preview
+        </span>
+        {delta !== undefined && (
+          <span className={`img-delta ${delta > 0 ? 'num-add' : delta < 0 ? 'num-del' : 'muted'}`}>
+            {delta > 0 ? `+${formatBytes(delta)}` : delta < 0 ? `−${formatBytes(Math.abs(delta))}` : '0 B'} ({before && before.bytes > 0 ? `${Math.round((delta / before.bytes) * 100)}%` : '0%'})
+          </span>
+        )}
+      </div>
+      <div className={`img-diff-grid ${before && after ? 'two-col' : 'one-col'}`}>
+        {before && <ImageSideBox label="Before" side={before} tone="del" />}
+        {after && <ImageSideBox label="After" side={after} tone="add" />}
+      </div>
+    </section>
   );
 }
 

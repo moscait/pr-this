@@ -58,7 +58,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
       for (const c of unprobed) {
         const key = `${root}:${c.sha}`;
         if (cachedCommits.has(key)) continue;
-        const session = await commitSession(root, c.sha, s.exclude, s.sendSecretFiles);
+        const session = await commitSession(root, c.sha, s.exclude, s.sendSecretFiles, { images: false });
         if (session.files.length && (await analyzer.hasOverview(session, cfg, { maxChars, language }))) {
           cachedCommits.add(key);
           found = true;
@@ -85,7 +85,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
           const pctx = await prewarmContext(ctx.secrets);
           if (!pctx || signal.aborted) return;
           const { cfg, maxChars, language, settings: s } = pctx;
-          const session = await commitSession(root, sha, s.exclude, s.sendSecretFiles);
+          const session = await commitSession(root, sha, s.exclude, s.sendSecretFiles, { images: false });
           if (!session.files.length || signal.aborted) return;
           const already = await analyzer.hasOverview(session, cfg, { maxChars, language });
           const { overview } = await analyzer.overview(session, cfg, { maxChars, language, signal });

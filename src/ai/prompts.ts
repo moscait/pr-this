@@ -11,9 +11,19 @@ import type {
   Severity,
 } from '../shared/types';
 import { buildDiffDigest, redactSecrets, renderFileDiff } from '../core/diff';
+import { describeImageMeta } from '../core/image';
 import type { ChatMessage } from './providers';
 
-export const PROMPT_VERSION = 7;
+export const PROMPT_VERSION = 8;
+
+/**
+ * Neutralize any attempt by untrusted content to open or close `<untrusted_*>` boundary tags,
+ * then wrap the body in `<untrusted_${tag}>...</untrusted_${tag}>`.
+ */
+export function untrusted(tag: string, body: string): string {
+  const clean = body.replace(/<\s*(\/?)\s*untrusted_/gi, (_m, slash) => `&lt;${slash ? '/' : ''}untrusted_`);
+  return `<untrusted_${tag}>\n${clean}\n</untrusted_${tag}>`;
+}
 
 /** Clean a configured explanation language so workspace settings cannot inject instructions into the system prompt. */
 export function sanitizeLanguage(raw: unknown): string {
@@ -34,14 +44,14 @@ function describeScope(s: ChangeSession): string {
   else if (s.scope.kind === 'range') lines.push(`Scope: branch comparison ${s.scope.base}...${s.scope.head}`);
   else lines.push('Scope: uncommitted working-tree changes (no commit message available)');
   if (s.commits.length) {
-    lines.push('', '<untrusted_commits>', 'Commit messages:');
+    const commitLines: string[] = ['Commit messages:'];
     for (const c of s.commits.slice(0, 40)) {
       const subj = redactSecrets(c.subject).text;
       const body = c.body ? redactSecrets(c.body.slice(0, 400)).text.replace(/\n/g, '\n  ') : '';
-      lines.push(`- ${c.shortSha} ${subj}${body ? `\n  ${body}` : ''}`);
+      commitLines.push(`- ${c.shortSha} ${subj}${body ? `\n  ${body}` : ''}`);
     }
-    if (s.commits.length > 40) lines.push(`- … ${s.commits.length - 40} more commits`);
-    lines.push('</untrusted_commits>');
+    if (s.commits.length > 40) commitLines.push(`- … ${s.commits.length - 40} more commits`);
+    lines.push('', untrusted('commits', commitLines.join('\n')));
   }
   return lines.join('\n');
 }
@@ -55,7 +65,8 @@ export function fileTable(files: DiffFile[], maxChars = Infinity): string {
   let size = 0;
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
-    const line = `- ${f.path}${f.oldPath ? ` (from ${f.oldPath})` : ''} [${f.status}, +${f.additions} -${f.deletions}]${f.excluded ? ` (diff omitted: ${f.excludedReason ?? 'excluded'})` : ''}`;
+    const imgInfo = f.image ? `, ${describeImageMeta(f.image.before, f.image.after)}` : '';
+    const line = `- ${f.path}${f.oldPath ? ` (from ${f.oldPath})` : ''} [${f.status}, +${f.additions} -${f.deletions}${imgInfo}]${f.excluded ? ` (diff omitted: ${f.excludedReason ?? 'excluded'})` : ''}`;
     // Keep room for the summary line of the files that do not fit.
     if (size + line.length + 1 > maxChars - 80 && i < files.length - 1) {
       const rest = files.slice(i);
@@ -207,15 +218,9 @@ Respond with a single JSON object only — no markdown fences, no commentary —
 ${OVERVIEW_SCHEMA}`;
   const user = `${describeScope(s)}
 
-<untrusted_files>
-Changed files (${s.files.length}, +${s.additions} -${s.deletions}):
-${list}
-</untrusted_files>
+${untrusted('files', `Changed files (${s.files.length}, +${s.additions} -${s.deletions}):\n${list}`)}
 
-<untrusted_diff>
-Unified diff:
-${digest}
-</untrusted_diff>`;
+${untrusted('diff', `Unified diff:\n${digest}`)}`;
   return [
     { role: 'system', content: system },
     { role: 'user', content: user },
@@ -236,10 +241,12 @@ Explain one file of the code change to a reviewer. Respond with a single JSON ob
       "severity": "info" | "warn" | "risk" }
   ]
 }`;
-  const ctx = overview
-    ? `${describeScope(s)}\n\nOverall change: ${overview.headline}\nIntent: ${overview.intent}\n\n`
-    : `${describeScope(s)}\n\n`;
-  const user = `${ctx}<untrusted_diff>\nFile: ${f.path}\n\n${renderFileDiff(f, maxChars, true)}\n</untrusted_diff>`;
+  const parts = [describeScope(s)];
+  if (overview) {
+    parts.push(untrusted('summary', `Overall change: ${overview.headline}\nIntent: ${overview.intent}`));
+  }
+  parts.push(untrusted('diff', `File: ${f.path}\n\n${renderFileDiff(f, maxChars, true)}`));
+  const user = parts.join('\n\n');
   return [
     { role: 'system', content: system },
     { role: 'user', content: user },
@@ -256,9 +263,14 @@ export function askMessages(
   language: string,
 ): ChatMessage[] {
   const parts = [describeScope(s)];
-  if (overview) parts.push(`Summary of the change: ${overview.headline}\n${overview.summary}`);
-  if (file) parts.push(`The reviewer is currently looking at ${file.path}:\n<untrusted_diff>\n${renderFileDiff(file, maxChars)}\n</untrusted_diff>`);
-  else parts.push(`<untrusted_diff>\nDiff:\n${buildDiffDigest(s.files.filter((f) => !f.excluded), Math.floor(maxChars * 0.6))}\n</untrusted_diff>`);
+  if (overview) {
+    parts.push(untrusted('summary', `Summary of the change: ${overview.headline}\n${overview.summary}`));
+  }
+  if (file) {
+    parts.push(untrusted('diff', `The reviewer is currently looking at ${file.path}:\n\n${renderFileDiff(file, maxChars)}`));
+  } else {
+    parts.push(untrusted('diff', `Diff:\n${buildDiffDigest(s.files.filter((f) => !f.excluded), Math.floor(maxChars * 0.6))}`));
+  }
   return [
     {
       role: 'system',

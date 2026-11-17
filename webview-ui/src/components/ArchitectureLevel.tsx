@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, type Target, type TargetAndTransition } from 'framer-motion';
 import { useEffect, useMemo, useState, type Dispatch } from 'react';
 import type { Action, State } from '../state';
 import { layoutGraph, NODE_H, NODE_W } from '../layout';
@@ -101,8 +101,8 @@ export function ArchitectureLevel({ state, dispatch }: { state: State; dispatch:
                     d={e.d}
                     className="edge-base"
                     markerEnd={isActive ? 'url(#arrow-active)' : 'url(#arrow)'}
-                    initial={{ pathLength: 0, opacity: 0 }}
-                    animate={{ pathLength: 1, opacity: 1 }}
+                    initial={{ pathLength: 0, opacity: 0 } as unknown as Target}
+                    animate={{ pathLength: 1, opacity: 1 } as unknown as TargetAndTransition}
                     transition={{ duration: 0.7, delay: 0.25 + i * 0.08, ease: 'easeInOut' }}
                   />
                   <path d={e.d} className="edge-flow" />

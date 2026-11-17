@@ -9,6 +9,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # @types/vscode must track engines.vscode (^1.90.0) so vsce package does not fail.
+    # @types/node must track the Node runtime bundled in VS Code (Node 20 for VS Code 1.90).
+    ignore:
+      - dependency-name: "@types/vscode"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       minor-and-patch:
         update-types:

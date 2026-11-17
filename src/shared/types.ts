@@ -22,6 +22,20 @@ export interface DiffHunk {
   lines: DiffLine[];
 }
 
+export interface ImageSide {
+  mime: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+  dataUri?: string;
+  unavailable?: 'too-large' | 'unreadable' | 'symlink';
+}
+
+export interface ImageDiff {
+  before?: ImageSide;
+  after?: ImageSide;
+}
+
 export interface DiffFile {
   path: string;
   oldPath?: string;
@@ -30,6 +44,8 @@ export interface DiffFile {
   deletions: number;
   binary: boolean;
   hunks: DiffHunk[];
+  /** Present for graphic files (.svg, .png, .jpg, .webp, .gif, .ico, .bmp, .avif) with dimensions and byte sizes. */
+  image?: ImageDiff;
   /** Listed in the UI but not sent to the AI (lock files, generated code, secrets, …). */
   excluded?: boolean;
   /** Why the file is not sent to the AI, shown to the user and in the prompt. */
@@ -151,6 +167,7 @@ export type HostMessage =
   | { type: 'file:progress'; path: string; chars: number }
   | { type: 'file'; path: string; detail: FileDetail }
   | { type: 'file:error'; path: string; message: string }
+  | { type: 'file:image'; path: string; image: ImageDiff }
   | { type: 'ask:chunk'; id: string; text: string }
   | { type: 'ask:done'; id: string }
   | { type: 'ask:error'; id: string; message: string };
@@ -159,6 +176,7 @@ export type WebviewMessage =
   | { type: 'ready' }
   | { type: 'regenerate' }
   | { type: 'explainFile'; path: string; force?: boolean }
+  | { type: 'loadImage'; path: string }
   | { type: 'openDiff'; path: string }
   | { type: 'openFile'; path: string; line?: number; side?: 'old' | 'new' }
   | { type: 'ask'; id: string; history: ChatTurn[]; question: string; path?: string }

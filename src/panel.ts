@@ -8,7 +8,8 @@ import { providerInfo, configureProvider, prewarmContext, runContext } from './a
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { overviewToMarkdown } from './ai/prompts';
 import { ProviderError } from './ai/providers';
-import { EMPTY_TREE, sameChange } from './core/git';
+import { EMPTY_TREE, readImageRef, sameChange } from './core/git';
+import { buildImageSide } from './core/image';
 
 /** A webview panel showing one change session at all zoom levels. */
 export class LensPanel {
@@ -112,6 +113,9 @@ export class LensPanel {
         break;
       case 'explainFile':
         void this.runFile(m.path, !!m.force);
+        break;
+      case 'loadImage':
+        void this.loadImage(m.path);
         break;
       case 'openDiff':
         await this.openDiff(m.path);
@@ -238,6 +242,22 @@ export class LensPanel {
       }
     } finally {
       if (this.fileCtl.get(p) === ctl) this.fileCtl.delete(p);
+    }
+  }
+
+  private async loadImage(filePath: string): Promise<void> {
+    const session = this.session;
+    const file = session.files.find((f) => f.path === filePath);
+    if (!file || !file.image) return;
+    const oldP = file.oldPath ?? file.path;
+    const [beforeRes, afterRes] = await Promise.all([
+      file.status === 'added' ? Promise.resolve(undefined) : readImageRef(session.repoRoot, session.leftRef, oldP),
+      file.status === 'deleted' ? Promise.resolve(undefined) : readImageRef(session.repoRoot, session.rightRef, file.path),
+    ]);
+    const before = beforeRes ? buildImageSide(beforeRes.buf, oldP, true, beforeRes.bytes, beforeRes.unavailable) : undefined;
+    const after = afterRes ? buildImageSide(afterRes.buf, file.path, true, afterRes.bytes, afterRes.unavailable) : undefined;
+    if (this.session === session && (before || after)) {
+      this.post({ type: 'file:image', path: filePath, image: { before, after } });
     }
   }
 

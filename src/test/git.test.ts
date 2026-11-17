@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { commitSession, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession } from '../core/git';
+import { commitSession, gitBuffer, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession } from '../core/git';
 import { fileTable, overviewMessages } from '../ai/prompts';
 import type { ChangeSession, DiffFile } from '../shared/types';
 
@@ -130,6 +130,17 @@ test('workingSession caps untracked files and says so', async () => {
   assert.equal(s.files.length, MAX_UNTRACKED);
   assert.equal(s.notices?.length, 1);
   assert.match(s.notices![0], new RegExp(`Only ${MAX_UNTRACKED} of ${MAX_UNTRACKED + 5} untracked files`));
+});
+
+test('gitBuffer returns raw binary Buffer from git show blob', async () => {
+  const { dir, git, write } = repo('git-buffer');
+  const payload = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+  write('test.png', payload);
+  git('add', 'test.png');
+  git('commit', '-qm', 'add png');
+  const buf = await gitBuffer(dir, ['show', 'HEAD:test.png']);
+  assert.ok(Buffer.isBuffer(buf));
+  assert.deepEqual(buf, payload);
 });
 
 test('the file list in the overview prompt stays within its share of the budget', () => {

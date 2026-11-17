@@ -405,6 +405,33 @@ button.crumb:hover { background: var(--card-hover); color: var(--fg); }
 .narrative .md p:last-child { margin-bottom: 0; }
 .regen { position: absolute; top: 8px; right: 8px; }
 
+.img-diff { margin-bottom: 16px; }
+.img-diff-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.img-delta { font-family: var(--mono); font-size: 11px; }
+.img-diff-grid { display: grid; gap: 14px; }
+.img-diff-grid.two-col { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.img-diff-grid.one-col { grid-template-columns: minmax(220px, 420px); }
+.img-pane { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--vscode-editor-background); display: flex; flex-direction: column; }
+.img-pane-del { border-top: 2px solid var(--c-del); }
+.img-pane-add { border-top: 2px solid var(--c-add); }
+.img-pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 11px; background: var(--card); }
+.img-badge { font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+.img-badge-del { color: var(--c-del); }
+.img-badge-add { color: var(--c-add); }
+.img-meta { font-family: var(--mono); color: var(--muted); }
+.img-stage {
+  display: grid; place-items: center; padding: 18px; min-height: 140px; max-height: 320px; overflow: auto;
+  background-color: var(--vscode-editor-background);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--fg) 7%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--fg) 7%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--fg) 7%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--fg) 7%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.img-stage img { max-width: 100%; max-height: 260px; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+
 .hunk { margin-bottom: 18px; }
 .hunk-note { overflow: hidden; border-left: 3px solid var(--c-info); background: var(--card); border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-top: 1px solid var(--border); border-right: 1px solid var(--border); }
 .hunk-note-inner { padding: 10px 14px; }

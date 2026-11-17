@@ -1,4 +1,4 @@
-import type { ChangeSession, ChatTurn, FileDetail, HostMessage, Overview, ProviderInfo } from '../../src/shared/types';
+import type { ChangeSession, ChatTurn, FileDetail, HostMessage, ImageDiff, Overview, ProviderInfo } from '../../src/shared/types';
 
 export type Level = 0 | 1 | 2 | 3;
 export const LEVELS: { id: Level; label: string; hint: string }[] = [
@@ -25,6 +25,7 @@ export interface State {
   provider?: ProviderInfo;
   overview: Async<Overview>;
   files: Record<string, Async<FileDetail>>;
+  images: Record<string, ImageDiff>;
   level: Level;
   direction: 1 | -1;
   selectedFile?: string;
@@ -35,6 +36,7 @@ export interface State {
 export const initialState: State = {
   overview: { status: 'idle' },
   files: {},
+  images: {},
   level: 0,
   direction: 1,
   ask: { open: false, turns: [] },
@@ -57,6 +59,7 @@ export function reducer(s: State, a: Action): State {
         ...s,
         session: a.session,
         files: keep ? s.files : {},
+        images: keep ? s.images : {},
         selectedFile: keep && s.selectedFile && a.session.files.some((f) => f.path === s.selectedFile) ? s.selectedFile : a.session.files[0]?.path,
       };
     }
@@ -83,6 +86,8 @@ export function reducer(s: State, a: Action): State {
       return { ...s, files: { ...s.files, [a.path]: { status: 'ready', value: a.detail } } };
     case 'file:error':
       return { ...s, files: { ...s.files, [a.path]: { status: 'error', message: a.message } } };
+    case 'file:image':
+      return { ...s, images: { ...s.images, [a.path]: a.image } };
     case 'zoom': {
       if (a.level === s.level && !a.file && a.component === undefined) return s;
       return {

@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ChangeSession, ChatTurn, DiffFile, FileDetail, Overview } from '../shared/types';
 import { renderFileDiff } from '../core/diff';
+import { describeImageMeta } from '../core/image';
 import { extractJson } from '../core/json';
 import {
   askMessages,
@@ -192,7 +193,14 @@ export class Analyzer {
       }
     }
     if (f.excluded || f.binary || !f.hunks.length) {
-      return { path: f.path, narrative: f.binary ? 'Binary file — no textual diff.' : f.excluded ? `Not sent to the AI: ${f.excludedReason ?? 'excluded'}.` : 'No content changes (mode change or rename only).', hunks: [] };
+      const narrative = f.image
+        ? `Graphic file (${describeImageMeta(f.image.before, f.image.after)}) — see the visual preview below.`
+        : f.binary
+          ? 'Binary file — no textual diff.'
+          : f.excluded
+            ? `Not sent to the AI: ${f.excludedReason ?? 'excluded'}.`
+            : 'No content changes (mode change or rename only).';
+      return { path: f.path, narrative, hunks: [] };
     }
     const listeners = new Set<NonNullable<Opts['onProgress']>>();
     if (o.onProgress) listeners.add(o.onProgress);
