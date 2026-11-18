@@ -283,6 +283,38 @@ export function sameChange(a: ChangeSession, b: ChangeSession): boolean {
   return a.scope.kind !== 'working' && a.leftRef === b.leftRef && a.rightRef === b.rightRef;
 }
 
+/**
+ * Paths whose file in the working tree has exactly the content they have at `ref`
+ * (after git's clean filters, e.g. line-ending conversion). Missing or non-regular files never match.
+ */
+export async function workingTreeMatchesRef(root: string, ref: string, paths: string[]): Promise<Set<string>> {
+  const matches = new Set<string>();
+  const blobs = new Map<string, string>();
+  for (let i = 0; i < paths.length; i += 200) {
+    const chunk = paths.slice(i, i + 200);
+    const out = await git(root, ['--literal-pathspecs', 'ls-tree', '-r', '-z', ref, '--', ...chunk]);
+    for (const entry of out.split('\0')) {
+      const tab = entry.indexOf('\t');
+      if (tab < 0) continue;
+      const [, type, sha] = entry.slice(0, tab).split(' ');
+      if (type === 'blob') blobs.set(entry.slice(tab + 1), sha);
+    }
+  }
+  const candidates: string[] = [];
+  for (const p of blobs.keys()) {
+    const stat = await fs.lstat(path.join(root, p)).catch(() => undefined);
+    if (stat?.isFile()) candidates.push(p);
+  }
+  for (let i = 0; i < candidates.length; i += 200) {
+    const chunk = candidates.slice(i, i + 200);
+    const hashes = (await git(root, ['hash-object', '--', ...chunk])).split('\n').filter(Boolean);
+    chunk.forEach((p, j) => {
+      if (hashes[j] && hashes[j] === blobs.get(p)) matches.add(p);
+    });
+  }
+  return matches;
+}
+
 export async function commitSession(
   root: string,
   ref: string,

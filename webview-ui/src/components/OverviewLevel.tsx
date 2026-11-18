@@ -5,6 +5,7 @@ import { Markdown, inline } from './Markdown';
 import { ErrorCard, Shimmer, Thinking, splitPath } from './common';
 import { Icon, SeverityIcon } from './Icons';
 import { send } from '../vscode';
+import { StaticAnalysisCard } from './Diagnostics';
 
 const stagger = { animate: { transition: { staggerChildren: 0.05 } } };
 const rise = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 260, damping: 26 } } };
@@ -94,6 +95,7 @@ export function OverviewLevel({ state, dispatch }: { state: State; dispatch: Dis
         </motion.section>
 
         <div className="overview-side">
+          <StaticAnalysisCard state={state} dispatch={dispatch} variants={rise} />
           <motion.section className="card" variants={rise}>
             <h2 className="card-title">Review focus</h2>
             {o && (ov.status === 'ready' || o.reviewFocus.length > 0) ? (

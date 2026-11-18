@@ -97,3 +97,19 @@ export function filterDiffDiagnostics(file: DiffFile, rawDiagnostics: readonly R
 
   return result.slice(0, 50);
 }
+
+/**
+ * A stable digest of the diagnostics the AI sees for a file, part of the file explanation's cache key.
+ * Background pre-warming and interactive requests must compute it from the same settled diagnostics,
+ * or a pre-warmed explanation is never reused.
+ */
+export function diagnosticsDigest(file: Pick<DiffFile, 'diagnostics' | 'diagnosticsStatus'>): string {
+  if (file.diagnosticsStatus !== undefined && file.diagnosticsStatus !== 'ready') return '';
+  return file.diagnostics?.length ? file.diagnostics.map((d) => `${d.line}:${d.severity}:${d.message}`).join('|') : '';
+}
+
+/** Diagnostics the AI may use: only settled ones that match the diff. */
+export function usableDiagnostics(file: Pick<DiffFile, 'diagnostics' | 'diagnosticsStatus'>): DiffDiagnostic[] {
+  if (file.diagnosticsStatus !== undefined && file.diagnosticsStatus !== 'ready') return [];
+  return file.diagnostics ?? [];
+}

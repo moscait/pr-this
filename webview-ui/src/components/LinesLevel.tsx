@@ -7,6 +7,7 @@ import { DiffBar, ErrorCard, FileName, Shimmer, StatusBadge, Thinking, splitPath
 import { Icon, SeverityIcon } from './Icons';
 import { Markdown, inline } from './Markdown';
 import { send } from '../vscode';
+import { DiagnosticPills, describeCounts, countDiagnostics, shownDiagnostics, statusText } from './Diagnostics';
 
 const MAX_LINES_PER_HUNK = 400;
 
@@ -48,16 +49,17 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
       <nav className="file-nav" ref={navRef}>
         {s.files.map((f) => {
           const st = state.files[f.path];
-          const hasError = f.diagnostics?.some((d) => d.severity === 'error');
-          const hasWarn = f.diagnostics?.some((d) => d.severity === 'warning');
+          const navDiags = shownDiagnostics(f);
+          const hasError = navDiags.some((d) => d.severity === 'error');
+          const hasWarn = navDiags.some((d) => d.severity === 'warning');
           return (
             <button key={f.path} className={`nav-item ${f.path === file.path ? 'on' : ''}`} onClick={() => dispatch({ type: 'selectFile', path: f.path })} title={f.path}>
               <StatusBadge status={f.status} />
               <span className="nav-name">{splitPath(f.path).name}</span>
-              {f.diagnostics && f.diagnostics.length > 0 && (
+              {navDiags.length > 0 && (
                 <span
                   className={`nav-diag ${hasError ? 'error' : hasWarn ? 'warning' : 'info'}`}
-                  title={`${f.diagnostics.length} diagnostic${f.diagnostics.length === 1 ? '' : 's'} on modified lines`}
+                  title={`Static analysis on changed lines: ${describeCounts(countDiagnostics(navDiags))}`}
                 />
               )}
               {st?.status === 'loading' && <span className="nav-spinner" />}
@@ -78,28 +80,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
                 <StatusBadge status={file.status} />
                 <FileName file={file} />
                 <DiffBar add={file.additions} del={file.deletions} />
-                {file.diagnostics && file.diagnostics.length > 0 && (
-                  <div
-                    className="file-diagnostics-badge"
-                    title={`${file.diagnostics.length} diagnostic${file.diagnostics.length === 1 ? '' : 's'} on modified lines`}
-                  >
-                    {file.diagnostics.filter((d) => d.severity === 'error').length > 0 && (
-                      <span className="diag-pill error">
-                        <SeverityIcon severity="risk" size={11} /> {file.diagnostics.filter((d) => d.severity === 'error').length}
-                      </span>
-                    )}
-                    {file.diagnostics.filter((d) => d.severity === 'warning').length > 0 && (
-                      <span className="diag-pill warning">
-                        <SeverityIcon severity="warn" size={11} /> {file.diagnostics.filter((d) => d.severity === 'warning').length}
-                      </span>
-                    )}
-                    {file.diagnostics.filter((d) => d.severity !== 'error' && d.severity !== 'warning').length > 0 && (
-                      <span className="diag-pill info">
-                        <SeverityIcon severity="info" size={11} /> {file.diagnostics.filter((d) => d.severity !== 'error' && d.severity !== 'warning').length}
-                      </span>
-                    )}
-                  </div>
-                )}
+                <DiagnosticPills diagnostics={shownDiagnostics(file)} />
               </div>
               <div className="file-head-actions">
                 <button className={`btn ghost ${notes ? 'on' : ''}`} onClick={() => setNotes(!notes)} title="Toggle AI notes">
@@ -116,6 +97,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
               </div>
             </header>
             {file.oldPath && <div className="rename-note muted small">Renamed from {file.oldPath}</div>}
+            {statusText(file) && <div className={`diag-status-note muted small ${file.diagnosticsStatus}`}>{statusText(file)}</div>}
 
             <section className="narrative card">
               {d ? (
@@ -249,7 +231,7 @@ function Hunk({ file, hunk, note, showNote, pending }: { file: DiffFile; hunk: D
             {lines.map((l, i) => {
               const lineDiags =
                 l.kind === 'add' && typeof l.newLine === 'number'
-                  ? file.diagnostics?.filter((d) => d.line === l.newLine)
+                  ? shownDiagnostics(file).filter((d) => d.line === l.newLine)
                   : undefined;
               return (
                 <Fragment key={i}>
