@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { Analyzer } from './ai/analyzer';
 import { configureProvider, prewarmContext, runContext, settings } from './ai/config';
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
+import { StaticAnalysis } from './staticAnalysis';
 import { ChangesView } from './changesView';
 import { commitSession, defaultBaseBranch, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
 import { LensPanel } from './panel';
@@ -34,6 +35,8 @@ async function currentRoot(interactive: boolean): Promise<string | undefined> {
 
 export function activate(ctx: vscode.ExtensionContext): void {
   const bg = new BackgroundQueue();
+  const analysis = new StaticAnalysis();
+  ctx.subscriptions.push(analysis);
   const cachedCommits = new Set<string>();
   const probedCommits = new Set<string>();
   let headTimer: NodeJS.Timeout | undefined;
@@ -93,7 +96,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
           cachedCommits.add(key);
           view.refresh();
           if (!already) {
-            prewarmSessionFiles(bg, analyzer, session, overview, () => prewarmContext(ctx.secrets), 2);
+            prewarmSessionFiles(bg, analyzer, session, overview, () => prewarmContext(ctx.secrets), 2, (file, sig) =>
+              analysis.prepare(session, [file], { signal: sig }),
+            );
           }
         },
       });
@@ -119,7 +124,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
         return;
       }
       for (const n of session.notices ?? []) void vscode.window.showWarningMessage(`PR This: ${n}`);
-      LensPanel.show(ctx, analyzer, bg, session, refresh, markOverviewCached);
+      LensPanel.show(ctx, analyzer, bg, analysis, session, refresh, markOverviewCached);
     } catch (e) {
       vscode.window.showErrorMessage(`PR This: ${(e as Error).message}`);
     }

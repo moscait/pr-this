@@ -130,6 +130,8 @@ export function prewarmSessionFiles(
   overview: Overview,
   getContext: () => Promise<{ cfg: ProviderConfig; maxChars: number; language: string } | undefined>,
   limit = 3,
+  /** Settles the file's static analysis first, so the pre-warmed explanation has the cache key an interactive request will use. */
+  prepare?: (file: DiffFile, signal: AbortSignal) => Promise<void>,
 ): void {
   const prefix = `file:${session.id}:`;
   queue.cancelPrefix(prefix);
@@ -144,6 +146,8 @@ export function prewarmSessionFiles(
         run: async (signal) => {
           const ctx = await getContext();
           if (!ctx || signal.aborted) return;
+          await prepare?.(file, signal);
+          if (signal.aborted) return;
           const cached = await analyzer.hasFileDetail(file, overview, ctx.cfg, { maxChars: ctx.maxChars, language: ctx.language });
           if (cached || signal.aborted) return;
           await analyzer.fileDetail(session, file, overview, ctx.cfg, {

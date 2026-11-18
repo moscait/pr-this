@@ -11,6 +11,7 @@ import type {
   Severity,
 } from '../shared/types';
 import { buildDiffDigest, redactSecrets, renderFileDiff } from '../core/diff';
+import { usableDiagnostics } from '../core/diagnostics';
 import { describeImageMeta } from '../core/image';
 import type { ChatMessage } from './providers';
 
@@ -240,10 +241,25 @@ Explain one file of the code change to a reviewer. Respond with a single JSON ob
       "concern": string | null,  // a real potential bug / edge case / risk, or null if none
       "severity": "info" | "warn" | "risk" }
   ]
-}`;
+}
+If static analysis diagnostics are reported on modified lines, take them into account when assessing risk and noting concerns.`;
   const parts = [describeScope(s)];
   if (overview) {
     parts.push(untrusted('summary', `Overall change: ${overview.headline}\nIntent: ${overview.intent}`));
+  }
+  const fileDiags = usableDiagnostics(f);
+  if (fileDiags.length > 0) {
+    const diagLines = fileDiags.slice(0, 15).map((d) => {
+      const src = d.source ? `[${d.source}] ` : '';
+      const code = d.code !== undefined ? `(${d.code}) ` : '';
+      return `- Line ${d.line} (${d.severity.toUpperCase()}): ${src}${code}${redactSecrets(d.message).text}`;
+    });
+    parts.push(
+      untrusted(
+        'diagnostics',
+        `Static code analysis diagnostics detected on modified lines in this file:\n${diagLines.join('\n')}`,
+      ),
+    );
   }
   parts.push(untrusted('diff', `File: ${f.path}\n\n${renderFileDiff(f, maxChars, true)}`));
   const user = parts.join('\n\n');
@@ -267,6 +283,11 @@ export function askMessages(
     parts.push(untrusted('summary', `Summary of the change: ${overview.headline}\n${overview.summary}`));
   }
   if (file) {
+    const askDiags = usableDiagnostics(file);
+    if (askDiags.length > 0) {
+      const diagLines = askDiags.slice(0, 10).map((d) => `- Line ${d.line} (${d.severity.toUpperCase()}): ${redactSecrets(d.message).text}`);
+      parts.push(untrusted('diagnostics', `Static code analysis diagnostics on modified lines:\n${diagLines.join('\n')}`));
+    }
     parts.push(untrusted('diff', `The reviewer is currently looking at ${file.path}:\n\n${renderFileDiff(file, maxChars)}`));
   } else {
     parts.push(untrusted('diff', `Diff:\n${buildDiffDigest(s.files.filter((f) => !f.excluded), Math.floor(maxChars * 0.6))}`));

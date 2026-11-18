@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState, type Dispatch } from 'react';
+import { Fragment, useEffect, useRef, useState, type Dispatch } from 'react';
 import type { DiffFile, DiffHunk, HunkNote, ImageDiff, ImageSide } from '../../../src/shared/types';
 import { formatBytes, MAX_PREVIEW_IMAGE_BYTES } from '../../../src/shared/format';
 import type { Action, State } from '../state';
@@ -7,6 +7,7 @@ import { DiffBar, ErrorCard, FileName, Shimmer, StatusBadge, Thinking, splitPath
 import { Icon, SeverityIcon } from './Icons';
 import { Markdown, inline } from './Markdown';
 import { send } from '../vscode';
+import { DiagnosticPills, describeCounts, countDiagnostics, shownDiagnostics, statusText } from './Diagnostics';
 
 const MAX_LINES_PER_HUNK = 400;
 
@@ -48,10 +49,19 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
       <nav className="file-nav" ref={navRef}>
         {s.files.map((f) => {
           const st = state.files[f.path];
+          const navDiags = shownDiagnostics(f);
+          const hasError = navDiags.some((d) => d.severity === 'error');
+          const hasWarn = navDiags.some((d) => d.severity === 'warning');
           return (
             <button key={f.path} className={`nav-item ${f.path === file.path ? 'on' : ''}`} onClick={() => dispatch({ type: 'selectFile', path: f.path })} title={f.path}>
               <StatusBadge status={f.status} />
               <span className="nav-name">{splitPath(f.path).name}</span>
+              {navDiags.length > 0 && (
+                <span
+                  className={`nav-diag ${hasError ? 'error' : hasWarn ? 'warning' : 'info'}`}
+                  title={`Static analysis on changed lines: ${describeCounts(countDiagnostics(navDiags))}`}
+                />
+              )}
               {st?.status === 'loading' && <span className="nav-spinner" />}
               {st?.status === 'ready' && st.value.hunks.some((h) => h.concern) && <span className="nav-flag" title="Has review notes" />}
             </button>
@@ -70,6 +80,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
                 <StatusBadge status={file.status} />
                 <FileName file={file} />
                 <DiffBar add={file.additions} del={file.deletions} />
+                <DiagnosticPills diagnostics={shownDiagnostics(file)} />
               </div>
               <div className="file-head-actions">
                 <button className={`btn ghost ${notes ? 'on' : ''}`} onClick={() => setNotes(!notes)} title="Toggle AI notes">
@@ -86,6 +97,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
               </div>
             </header>
             {file.oldPath && <div className="rename-note muted small">Renamed from {file.oldPath}</div>}
+            {statusText(file) && <div className={`diag-status-note muted small ${file.diagnosticsStatus}`}>{statusText(file)}</div>}
 
             <section className="narrative card">
               {d ? (
@@ -216,25 +228,46 @@ function Hunk({ file, hunk, note, showNote, pending }: { file: DiffFile; hunk: D
         </div>
         <table>
           <tbody>
-            {lines.map((l, i) => (
-              <tr
-                key={i}
-                className={`ln ln-${l.kind}`}
-                onDoubleClick={() =>
-                  send({
-                    type: 'openFile',
-                    path: file.path,
-                    line: l.kind === 'del' ? l.oldLine : l.newLine,
-                    side: l.kind === 'del' ? 'old' : 'new',
-                  })
-                }
-              >
-                <td className="ln-num">{l.oldLine ?? ''}</td>
-                <td className="ln-num">{l.newLine ?? ''}</td>
-                <td className="ln-sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : l.kind === 'meta' ? '' : ''}</td>
-                <td className="ln-text">{l.kind === 'meta' ? <i>{l.text}</i> : l.text || ' '}</td>
-              </tr>
-            ))}
+            {lines.map((l, i) => {
+              const lineDiags =
+                l.kind === 'add' && typeof l.newLine === 'number'
+                  ? shownDiagnostics(file).filter((d) => d.line === l.newLine)
+                  : undefined;
+              return (
+                <Fragment key={i}>
+                  <tr
+                    className={`ln ln-${l.kind}`}
+                    onDoubleClick={() =>
+                      send({
+                        type: 'openFile',
+                        path: file.path,
+                        line: l.kind === 'del' ? l.oldLine : l.newLine,
+                        side: l.kind === 'del' ? 'old' : 'new',
+                      })
+                    }
+                  >
+                    <td className="ln-num">{l.oldLine ?? ''}</td>
+                    <td className="ln-num">{l.newLine ?? ''}</td>
+                    <td className="ln-sign">{l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : l.kind === 'meta' ? '' : ''}</td>
+                    <td className="ln-text">{l.kind === 'meta' ? <i>{l.text}</i> : l.text || ' '}</td>
+                  </tr>
+                  {lineDiags?.map((d, di) => (
+                    <tr key={`diag-${i}-${di}`} className={`ln-diag-row ln-diag-${d.severity}`}>
+                      <td className="ln-num"></td>
+                      <td className="ln-num">{d.line}</td>
+                      <td className="ln-sign">
+                        <SeverityIcon severity={d.severity === 'error' ? 'risk' : d.severity === 'warning' ? 'warn' : 'info'} size={12} />
+                      </td>
+                      <td className="ln-text ln-diag-msg">
+                        {d.source && <span className="diag-source">[{d.source}] </span>}
+                        {d.code !== undefined && <span className="diag-code">({String(d.code)}) </span>}
+                        <span className="diag-text">{d.message}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
         {!expanded && hunk.lines.length > MAX_LINES_PER_HUNK && (

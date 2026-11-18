@@ -1,6 +1,6 @@
 // Provider-agnostic streaming chat client. Uses global fetch (Node 18+/Electron).
 
-export type ProviderId = 'ollama' | 'lmstudio' | 'openaiCompatible' | 'openai' | 'anthropic' | 'gemini';
+export type ProviderId = 'ollama' | 'lmstudio' | 'openaiCompatible' | 'llmGateway' | 'openai' | 'anthropic' | 'gemini';
 
 export interface ProviderConfig {
   id: ProviderId;
@@ -67,6 +67,16 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     defaultModel: '',
     detail: 'vLLM, llama.cpp server, LiteLLM, OpenRouter, Groq, Together, …',
   },
+  llmGateway: {
+    id: 'llmGateway',
+    label: 'OpenZiti LLM Gateway',
+    // Even on localhost the gateway may route requests to cloud providers, so it is never treated as local.
+    local: false,
+    needsKey: false,
+    defaultBaseUrl: 'http://localhost:8080/v1',
+    defaultModel: '',
+    detail: 'openziti/llm-gateway — one endpoint that routes to OpenAI, Anthropic, or self-hosted models (treated as cloud)',
+  },
   openai: {
     id: 'openai',
     label: 'OpenAI',
@@ -112,14 +122,19 @@ export function staysLocal(id: ProviderId, baseUrl: string): boolean {
   return PROVIDERS[id].local && isLoopbackUrl(baseUrl || PROVIDERS[id].defaultBaseUrl);
 }
 
-/** SecretStorage key for a provider's API key; scoped to the base URL origin for `openaiCompatible`. */
+/** Providers whose base URL is user-chosen, so keys are scoped to the server origin. */
+export function isUserServer(id: ProviderId): boolean {
+  return id === 'openaiCompatible' || id === 'llmGateway';
+}
+
+/** SecretStorage key for a provider's API key; scoped to the base URL origin for user-chosen servers. */
 export function secretKeyForProvider(id: ProviderId, baseUrl?: string): string {
-  if (id === 'openaiCompatible') {
-    const raw = baseUrl || PROVIDERS.openaiCompatible.defaultBaseUrl;
+  if (isUserServer(id)) {
+    const raw = baseUrl || PROVIDERS[id].defaultBaseUrl;
     try {
-      return `prThis.apiKey.openaiCompatible.${new URL(raw).origin.toLowerCase()}`;
+      return `prThis.apiKey.${id}.${new URL(raw).origin.toLowerCase()}`;
     } catch {
-      return `prThis.apiKey.openaiCompatible.${raw.trim().toLowerCase()}`;
+      return `prThis.apiKey.${id}.${raw.trim().toLowerCase()}`;
     }
   }
   return `prThis.apiKey.${id}`;
@@ -151,6 +166,12 @@ export class ProviderError extends Error {
  * Leaving `temperature` out is always valid, so it is sent only to model families known to accept it.
  */
 export function acceptsTemperature(id: ProviderId, model: string): boolean {
+  // The LLM gateway routes by model prefix (claude-* → Anthropic, gpt-*/o* → OpenAI), so apply that provider's rule.
+  if (id === 'llmGateway') {
+    if (/^claude-/i.test(model)) return acceptsTemperature('anthropic', model);
+    if (/^(gpt|o\d)/i.test(model)) return acceptsTemperature('openai', model);
+    return true;
+  }
   if (id === 'openai') return !/^(o\d|gpt-5)/i.test(model);
   if (id === 'anthropic') return /^claude-(3|(opus|sonnet|haiku)-4-[0-6](?!\d))/i.test(model);
   return true;
@@ -251,6 +272,12 @@ async function request(url: string, init: RequestInit, cfg: ProviderConfig): Pro
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;
     const meta = PROVIDERS[cfg.id];
+    if (cfg.id === 'llmGateway') {
+      throw new ProviderError(
+        `Couldn't reach ${meta.label} at ${cfg.baseUrl}. Is the gateway running (\`llm-gateway run\`)? If you reach it through a private zrok share, is \`zrok access private\` running too?`,
+        true,
+      );
+    }
     throw new ProviderError(
       meta.local
         ? `Couldn't reach ${meta.label} at ${cfg.baseUrl}. Is it running?`
@@ -479,6 +506,7 @@ export const ADAPTERS: Record<ProviderId, ProviderAdapter> = {
   ollama: ollamaAdapter,
   lmstudio: openAIAdapter,
   openaiCompatible: openAIAdapter,
+  llmGateway: openAIAdapter,
   openai: openAIAdapter,
   anthropic: anthropicAdapter,
   gemini: geminiAdapter,

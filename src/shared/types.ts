@@ -36,6 +36,29 @@ export interface ImageDiff {
   after?: ImageSide;
 }
 
+export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+/**
+ * Whether `diagnostics` can be trusted for a file:
+ * - `pending`: language extensions are still analysing it.
+ * - `ready`: `diagnostics` matches the diff (an empty list means no problems were reported).
+ * - `stale`: the file on disk differs from the version in this diff, so its diagnostics would point at the wrong lines.
+ * - `unsaved`: the file has unsaved edits in an editor, so diagnostics describe text that is not in the diff.
+ * Undefined when static analysis does not apply (deleted, binary, excluded, no added lines) or is turned off.
+ */
+export type DiagnosticsStatus = 'pending' | 'ready' | 'stale' | 'unsaved';
+
+export interface DiffDiagnostic {
+  /** 1-based start line in the modified file. */
+  line: number;
+  /** 1-based end line if the diagnostic spans multiple lines. */
+  endLine?: number;
+  message: string;
+  severity: DiagnosticSeverity;
+  source?: string;
+  code?: string | number;
+}
+
 export interface DiffFile {
   path: string;
   oldPath?: string;
@@ -46,6 +69,9 @@ export interface DiffFile {
   hunks: DiffHunk[];
   /** Present for graphic files (.svg, .png, .jpg, .webp, .gif, .ico, .bmp, .avif) with dimensions and byte sizes. */
   image?: ImageDiff;
+  /** Static code analysis diagnostics detected on modified lines in this file. */
+  diagnostics?: DiffDiagnostic[];
+  diagnosticsStatus?: DiagnosticsStatus;
   /** Listed in the UI but not sent to the AI (lock files, generated code, secrets, …). */
   excluded?: boolean;
   /** Why the file is not sent to the AI, shown to the user and in the prompt. */
@@ -168,6 +194,7 @@ export type HostMessage =
   | { type: 'file'; path: string; detail: FileDetail }
   | { type: 'file:error'; path: string; message: string }
   | { type: 'file:image'; path: string; image: ImageDiff }
+  | { type: 'file:diagnostics'; path: string; diagnostics: DiffDiagnostic[]; status?: DiagnosticsStatus }
   | { type: 'ask:chunk'; id: string; text: string }
   | { type: 'ask:done'; id: string }
   | { type: 'ask:error'; id: string; message: string };

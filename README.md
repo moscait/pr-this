@@ -2,7 +2,7 @@
 
 Understand any commit, branch comparison, or uncommitted working change at a glance. Zoom continuously from a one-line intent down to hunk-level explanations, powered by locally running AI or popular cloud offerings.
 
-Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively as an interactive Visual Studio Code extension with animated architecture diagrams, blast-radius analysis, and code-review navigation.
+Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively by **Mosca IT LLC** as an interactive Visual Studio Code extension with animated architecture diagrams, blast-radius analysis, and code-review navigation.
 
 ---
 
@@ -13,12 +13,14 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively a
   - **Level 1 (Architecture)**: Animated component DAG with data-flow tracing and step-by-step walkthrough ("Play flow").
   - **Level 2 (Files)**: File cards grouped by component or folder with status badges, +/- bars, and intent summaries.
   - **Level 3 (Lines)**: Side-by-side file tree and hunk-by-hunk AI commentary highlighting potential bugs and edge cases.
+- **Static Analysis on Changed Lines**: problems your language extensions and linters report (TypeScript, ESLint, Pylance, …) on the lines a change adds, shown at every level and passed to the AI. See [Static analysis](#static-analysis).
 - **Any Git Change Scope**:
   - Uncommitted working changes (staged + unstaged + untracked).
   - Individual commits (browse commit history or right-click from VS Code Timeline).
   - Branch / range comparisons (PR-style merge-base diffs).
 - **Run Locally or in the Cloud**:
   - **Local**: Ollama (e.g. `qwen2.5-coder:7b`, `deepseek-coder`, `llama3.1`), LM Studio, or any OpenAI-compatible server (vLLM, llama.cpp).
+  - **Gateway**: optionally send requests through an [OpenZiti LLM Gateway](https://github.com/openziti/llm-gateway), which routes them to cloud or self-hosted models.
   - **Cloud**: OpenAI (default `gpt-4.1-mini`), Anthropic Claude (default `claude-sonnet-5-5`), Google Gemini (default `gemini-flash-latest`, Google's alias for its current Flash model). The model picker lists every chat model your API key can use, and requests adapt to models that reject parameters such as `temperature`.
   - `prThis.reasoningEffort` (default `medium`) sets how long reasoning models think: lower for faster overviews, `high` for the most thorough review.
   - API keys are stored in VS Code SecretStorage — never saved to settings or plain text.
@@ -126,9 +128,47 @@ After opening the extension:
    - **Ollama (Local)**: Default `http://localhost:11434`. Auto-detects installed models (e.g. `qwen2.5-coder:7b`). Make sure `ollama serve` is running.
    - **LM Studio (Local)**: Default `http://localhost:1234/v1`.
    - **OpenAI-compatible**: Custom base URL for vLLM, llama.cpp, LiteLLM, or OpenRouter.
+   - **OpenZiti LLM Gateway** (optional): Default `http://localhost:8080/v1`. See [Using the OpenZiti LLM Gateway](#using-the-openziti-llm-gateway).
    - **Google Gemini**: Paste your API key (defaults to `gemini-flash-latest`).
    - **Anthropic**: Paste your API key (defaults to `claude-sonnet-5-5`).
    - **OpenAI**: Paste your API key (defaults to `gpt-4.1-mini`).
+
+### Using the OpenZiti LLM Gateway
+
+[openziti/llm-gateway](https://github.com/openziti/llm-gateway) puts OpenAI, Anthropic, and self-hosted models behind one OpenAI-compatible endpoint. PR This talks to it like any OpenAI-compatible server.
+
+- **Address**: the gateway's `listen` address plus `/v1`, e.g. `http://localhost:8080/v1`.
+- **API key**: optional. If the gateway has `api_keys` enabled, paste a virtual key from `llm-gateway genkey`. It is stored in SecretStorage for that gateway address only.
+- **Model**: the gateway routes by model name: `gpt-*`, `o1-*`, `o3-*` go to OpenAI, `claude-*` goes to Anthropic, and everything else goes to the gateway's self-hosted backends (Ollama, vLLM, llama-server, …). Leave the model empty to use the gateway's `auto` model, which exists only when semantic routing is enabled.
+
+**zrok is optional.** You don't need zrok or OpenZiti on your machine to use the gateway. zrok matters in only two cases:
+
+- The gateway runs on another machine and is shared **privately** over zrok. Run `zrok access private <share-token>` and use the local address it prints as the base URL. A **public** zrok share gives you an HTTPS URL to use directly.
+- The gateway reaches its own backends through zrok (`zrok_share_token` in its config). That is the gateway's business; PR This is not involved.
+
+> [!CAUTION]
+> **The gateway is treated as a cloud provider, even on `localhost`.** A local address does not mean your code stays local: depending on the model, the gateway may forward your diffs to OpenAI or Anthropic, and PR This cannot see its routing config. So the panel shows a cloud badge, background pre-warming is off unless `prThis.backgroundPrewarm` is `always`, and the larger cloud diff budget applies. Choose a model your gateway routes to a self-hosted backend if your code must not leave your network.
+
+> [!WARNING]
+> Use `https://` for a gateway on another host. Over plain `http://`, your diffs and gateway key cross the network unencrypted; PR This asks you to confirm before using such an address.
+
+---
+
+## Static analysis
+
+PR This shows the problems your installed language extensions and linters report, limited to the lines the change adds. It runs no analysis of its own, so what you see depends on which extensions you have (TypeScript, ESLint, Pylance, rust-analyzer, …).
+
+**Where to find it**
+- **Intent**: a *Static analysis* card with error, warning and info counts across the change and the files with the most problems. Click a file to jump to its lines.
+- **Files**: error, warning and info counts on each file card.
+- **Lines**: a colored dot per file in the sidebar, counts in the file header, and each message directly under the line it applies to, with the tool and rule (e.g. `[eslint] (no-unused-vars)`).
+- **The AI**: problems on a file's changed lines are included when it explains that file or answers questions about it. Credential-shaped strings in messages are redacted first.
+
+**How it works**
+- When the Lens opens, PR This opens each changed file in the background (no editor tabs) so your language extensions analyse it, and waits a few seconds for their results. Up to 60 files per change are opened; files over 1 MB are skipped. Set `prThis.staticAnalysis` to `reportedOnly` to use only results that already exist, or `off` to turn it off.
+- Results always describe the file **as it is on disk now**. For a commit or branch comparison, they are only shown for files whose content on disk still matches that version. Otherwise they would point at the wrong lines, so the file says *changed on disk since this version* instead.
+- A file with unsaved edits shows no results until you save it.
+- A file no language extension looked at shows no count rather than "no problems".
 
 ---
 
@@ -150,7 +190,7 @@ After opening the extension:
 
 | Setting | Default | Scope | Description |
 | :--- | :--- | :--- | :--- |
-| `prThis.provider` | `"ollama"` | User (`machine`) | AI provider (`ollama`, `lmstudio`, `openaiCompatible`, `openai`, `anthropic`, `gemini`). Can only be set in user settings. |
+| `prThis.provider` | `"ollama"` | User (`machine`) | AI provider (`ollama`, `lmstudio`, `openaiCompatible`, `llmGateway`, `openai`, `anthropic`, `gemini`). Can only be set in user settings. |
 | `prThis.model` | `""` | User (`machine`) | Model name. Leave empty to use the provider default. Can only be set in user settings. |
 | `prThis.baseUrl` | `""` | User (`machine`) | Override the provider base URL. Can only be set in user settings. |
 | `prThis.temperature` | `0.2` | Workspace | Sampling temperature (`0`–`2`). |
@@ -161,7 +201,8 @@ After opening the extension:
 | `prThis.sendSecretFiles` | `false` | User (`machine`) | Send diffs of secret-like files (`.env`, private keys, credentials, …) to the AI. Can only be set in user settings. |
 | `prThis.explanationLanguage` | `"English"` | Workspace | Language the AI should write explanations in. |
 | `prThis.commitCount` | `50` | Workspace | Number of recent commits to list in the sidebar. |
-| `prThis.backgroundPrewarm` | `"local"` | User (`machine`) | Pre-compute explanations in the background (`local`, `always`, `off`) while idle. Can only be set in user settings. |
+| `prThis.backgroundPrewarm` | `"local"` | User (`machine`) | Pre-compute explanations in the background while idle: `local` only for providers that keep code on this machine, `always` for every provider (this spends cloud API calls on changes you may never open), or `off`. Can only be set in user settings. |
+| `prThis.staticAnalysis` | `"openFiles"` | Workspace | Show problems language extensions report on changed lines: `openFiles` opens changed files in the background so they get analysed, `reportedOnly` uses only what is already reported (usually just files open in an editor), `off` turns it off. |
 
 ---
 
@@ -176,5 +217,5 @@ After opening the extension:
   - The cache keeps at most **2,000 entries** and automatically prunes entries unused for more than **30 days**.
   - Run **`PR This: Clear Explanation Cache`** (`prThis.clearCache`) from the Command Palette at any time to delete all cached explanations from disk.
 - **Credentials & Workspace Isolation**:
-  - API keys are stored in OS-backed VS Code `SecretStorage` (scoped per origin for `openaiCompatible` servers).
+  - API keys are stored in OS-backed VS Code `SecretStorage` (scoped per origin for `openaiCompatible` and `llmGateway` servers).
   - Security-sensitive settings (`prThis.provider`, `prThis.model`, `prThis.baseUrl`, `prThis.maxDiffChars`, `prThis.sendSecretFiles`, and `prThis.backgroundPrewarm`) are `machine`-scoped and cannot be overridden by a repository's `.vscode/settings.json`.

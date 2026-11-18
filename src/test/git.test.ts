@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { commitSession, gitBuffer, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession } from '../core/git';
+import { commitSession, gitBuffer, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession, workingTreeMatchesRef } from '../core/git';
 import { fileTable, overviewMessages } from '../ai/prompts';
 import type { ChangeSession, DiffFile } from '../shared/types';
 
@@ -163,4 +163,21 @@ test('the file list in the overview prompt stays within its share of the budget'
   };
   const [, user] = overviewMessages(session, 60000, 'English');
   assert.ok(user.content.length < 60000 + 2000, `prompt is ${user.content.length} chars`);
+});
+
+test('workingTreeMatchesRef finds files unchanged on disk since a commit', async () => {
+  const r = repo('fresh');
+  r.write('same.ts', 'a\n');
+  r.write('edited.ts', 'b\n');
+  r.write('gone.ts', 'c\n');
+  r.write('glob[1].ts', 'd\n');
+  r.write('*.ts', 'e\n');
+  r.git('add', '-A');
+  r.git('commit', '-q', '-m', 'one');
+  const sha = r.git('rev-parse', 'HEAD').trim();
+  r.write('edited.ts', 'b changed\n');
+  fs.rmSync(path.join(r.dir, 'gone.ts'));
+  const paths = ['same.ts', 'edited.ts', 'gone.ts', 'glob[1].ts', '*.ts', 'never-committed.ts'];
+  const same = await workingTreeMatchesRef(r.dir, sha, paths);
+  assert.deepEqual([...same].sort(), ['*.ts', 'glob[1].ts', 'same.ts'], 'pathspec characters are taken literally');
 });

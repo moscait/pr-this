@@ -29,13 +29,6 @@ jobs:
       - run: npm test
       - run: npx vsce package
 
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: vsix
-          path: '*.vsix'
-          if-no-files-found: error
-
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
