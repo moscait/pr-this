@@ -2,7 +2,7 @@
   "name": "pr-this",
   "displayName": "PR This — AI Change Lens",
   "description": "Understand any commit, branch comparison, or working change at a glance. Zoom from a one-line intent down to line-level explanations, powered by local or cloud AI.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "moscait",
   "author": "Mosca IT LLC",
   "license": "MIT",
