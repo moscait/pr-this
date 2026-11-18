@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { ChangeSession, HostMessage, Overview } from './shared/types';
+import type { ChangeSession, DiffFile, HostMessage, Overview } from './shared/types';
 import { parseWebviewMessage } from './shared/protocol';
 import { Analyzer } from './ai/analyzer';
 import { providerInfo, configureProvider, prewarmContext, runContext } from './ai/config';
@@ -10,7 +10,7 @@ import { overviewToMarkdown } from './ai/prompts';
 import { ProviderError } from './ai/providers';
 import { EMPTY_TREE, readImageRef, sameChange } from './core/git';
 import { buildImageSide } from './core/image';
-import { filterDiffDiagnostics } from './core/diagnostics';
+import type { StaticAnalysis } from './staticAnalysis';
 
 /** A webview panel showing one change session at all zoom levels. */
 export class LensPanel {
@@ -28,6 +28,7 @@ export class LensPanel {
     ctx: vscode.ExtensionContext,
     analyzer: Analyzer,
     bg: BackgroundQueue,
+    analysis: StaticAnalysis,
     session: ChangeSession,
     refresh = false,
     onOverviewCached?: (session: ChangeSession) => void,
@@ -44,7 +45,7 @@ export class LensPanel {
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, 'dist', 'webview'), vscode.Uri.joinPath(ctx.extensionUri, 'media')],
     });
-    LensPanel.panels.set(session.id, new LensPanel(ctx, analyzer, bg, panel, session, onOverviewCached));
+    LensPanel.panels.set(session.id, new LensPanel(ctx, analyzer, bg, analysis, panel, session, onOverviewCached));
   }
 
   static broadcastProvider(secrets: vscode.SecretStorage): void {
@@ -61,6 +62,7 @@ export class LensPanel {
     private readonly ctx: vscode.ExtensionContext,
     private readonly analyzer: Analyzer,
     private readonly bg: BackgroundQueue,
+    private readonly analysis: StaticAnalysis,
     private readonly panel: vscode.WebviewPanel,
     private session: ChangeSession,
     private onOverviewCached?: (session: ChangeSession) => void,
@@ -68,19 +70,25 @@ export class LensPanel {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'media', 'icon.svg');
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((raw: unknown) => this.onMessage(raw), null, this.disposables);
-    this.populateSessionDiagnostics();
+    void this.prepareDiagnostics();
     vscode.languages.onDidChangeDiagnostics(
       (e) => {
         if (this.disposed) return;
         for (const uri of e.uris) {
-          const rel = path.relative(this.session.repoRoot, uri.fsPath);
-          const f = this.session.files.find((x) => x.path === rel);
-          if (f && f.status !== 'deleted' && !f.binary) {
-            const diags = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(uri));
-            f.diagnostics = diags;
-            this.post({ type: 'file:diagnostics', path: f.path, diagnostics: diags });
-          }
+          const f = this.fileAt(uri);
+          if (f && this.analysis.refresh(this.session, f)) this.postDiagnostics(f);
         }
+      },
+      null,
+      this.disposables,
+    );
+    vscode.workspace.onDidSaveTextDocument(
+      (doc) => {
+        const f = this.disposed ? undefined : this.fileAt(doc.uri);
+        if (!f) return;
+        // A working-tree diff was read when the Lens opened; after a save the file no longer matches it.
+        if (this.session.scope.kind === 'working') this.analysis.markChanged(this.session, f, (x) => this.postDiagnostics(x));
+        else void this.analysis.prepare(this.session, [f], { onChange: (x) => this.postDiagnostics(x) });
       },
       null,
       this.disposables,
@@ -88,12 +96,24 @@ export class LensPanel {
     panel.webview.html = this.html();
   }
 
-  private populateSessionDiagnostics(): void {
-    for (const f of this.session.files) {
-      if (f.status === 'deleted' || f.binary || f.excluded) continue;
-      const full = path.join(this.session.repoRoot, f.path);
-      const uri = vscode.Uri.file(full);
-      f.diagnostics = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(uri));
+  private fileAt(uri: vscode.Uri): DiffFile | undefined {
+    if (uri.scheme !== 'file') return undefined;
+    const rel = path.relative(this.session.repoRoot, uri.fsPath).split(path.sep).join('/');
+    return this.session.files.find((x) => x.path === rel);
+  }
+
+  private postDiagnostics(f: DiffFile): void {
+    if (this.session.files.includes(f)) {
+      this.post({ type: 'file:diagnostics', path: f.path, diagnostics: f.diagnostics ?? [], status: f.diagnosticsStatus });
+    }
+  }
+
+  /** Analyse every changed file in the background as soon as the session opens, so results are ready before the user drills in. */
+  private async prepareDiagnostics(): Promise<void> {
+    try {
+      await this.analysis.prepare(this.session, this.session.files, { onChange: (f) => this.postDiagnostics(f) });
+    } catch {
+      /* static analysis is best-effort */
     }
   }
 
@@ -113,7 +133,7 @@ export class LensPanel {
     for (const c of this.askCtl.values()) c.abort();
     this.askCtl.clear();
     this.session = s;
-    this.populateSessionDiagnostics();
+    void this.prepareDiagnostics();
     this.overview = undefined;
     this.post({ type: 'session', session: s });
     void this.runOverview(false);
@@ -227,10 +247,18 @@ export class LensPanel {
 
   private scheduleFilePrewarm(overview: Overview): void {
     const session = this.session;
-    prewarmSessionFiles(this.bg, this.analyzer, session, overview, async () => {
-      if (this.disposed || this.session !== session) return undefined;
-      return prewarmContext(this.ctx.secrets);
-    });
+    prewarmSessionFiles(
+      this.bg,
+      this.analyzer,
+      session,
+      overview,
+      async () => {
+        if (this.disposed || this.session !== session) return undefined;
+        return prewarmContext(this.ctx.secrets);
+      },
+      3,
+      (file, signal) => this.analysis.prepare(session, [file], { signal, onChange: (f) => this.postDiagnostics(f) }),
+    );
   }
 
   private async runFile(p: string, force: boolean): Promise<void> {
@@ -240,14 +268,12 @@ export class LensPanel {
     this.fileCtl.get(p)?.abort();
     const ctl = new AbortController();
     this.fileCtl.set(p, ctl);
-    if (f.status !== 'deleted' && !f.binary && !f.excluded) {
-      const full = path.join(session.repoRoot, f.path);
-      f.diagnostics = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(vscode.Uri.file(full)));
-    }
     this.post({ type: 'file:start', path: p, startedAt: Date.now() });
     try {
       const detail = await this.bg.runInteractive(
         async () => {
+          // Usually settled already (analysis starts when the panel opens); waits at most a few seconds otherwise.
+          await this.analysis.prepare(session, [f], { signal: ctl.signal, onChange: (x) => this.postDiagnostics(x) }).catch(() => undefined);
           const { cfg, maxChars, language } = await runContext(this.ctx.secrets);
           let last = 0;
           return this.analyzer.fileDetail(session, f, this.overview, cfg, {

@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import type { ChangeSession, ChatTurn, DiffFile, FileDetail, Overview } from '../shared/types';
 import { renderFileDiff } from '../core/diff';
+import { diagnosticsDigest } from '../core/diagnostics';
 import { describeImageMeta } from '../core/image';
 import { extractJson } from '../core/json';
 import {
@@ -117,8 +118,7 @@ export class Analyzer {
 
   async hasFileDetail(f: DiffFile, _overview: Overview | undefined, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>): Promise<boolean> {
     if (f.excluded || f.binary || !f.hunks.length) return true;
-    const key = this.key('file', cfg, o.language, renderFileDiff(f, o.maxChars, true));
-    return this.exists(key);
+    return this.exists(this.fileKey(f, cfg, o));
   }
 
   async overview(s: ChangeSession, cfg: ProviderConfig, o: Opts): Promise<{ overview: Overview; cached: boolean }> {
@@ -176,10 +176,16 @@ export class Analyzer {
     return promise;
   }
 
+  /**
+   * Key on the file diff, language, and static diagnostics, so regenerating the overview does not invalidate
+   * cached file explanations. `hasFileDetail` and `fileDetail` must share it so pre-warmed results are found.
+   */
+  private fileKey(f: DiffFile, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>): string {
+    return this.key('file', cfg, o.language, renderFileDiff(f, o.maxChars, true), diagnosticsDigest(f));
+  }
+
   async fileDetail(s: ChangeSession, f: DiffFile, overview: Overview | undefined, cfg: ProviderConfig, o: Opts): Promise<FileDetail> {
-    // Key on the file diff, language, and static diagnostics so regenerating the overview does not invalidate cached file explanations.
-    const diagDigest = f.diagnostics?.length ? f.diagnostics.map((d) => `${d.line}:${d.severity}:${d.message}`).join('|') : '';
-    const key = this.key('file', cfg, o.language, renderFileDiff(f, o.maxChars, true), diagDigest);
+    const key = this.fileKey(f, cfg, o);
     if (!o.force) {
       const hit = await this.read<FileDetail>(key);
       if (hit) return hit;

@@ -75,7 +75,7 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     needsKey: false,
     defaultBaseUrl: 'http://localhost:8080/v1',
     defaultModel: '',
-    detail: 'openziti/llm-gateway — routes to OpenAI, Anthropic, or local models; reachable over zrok/OpenZiti',
+    detail: 'openziti/llm-gateway — one endpoint that routes to OpenAI, Anthropic, or self-hosted models (treated as cloud)',
   },
   openai: {
     id: 'openai',
@@ -274,7 +274,7 @@ async function request(url: string, init: RequestInit, cfg: ProviderConfig): Pro
     const meta = PROVIDERS[cfg.id];
     if (cfg.id === 'llmGateway') {
       throw new ProviderError(
-        `Couldn't reach ${meta.label} at ${cfg.baseUrl}. Is \`llm-gateway run\` (or \`zrok access private <token>\` for a zrok share) running?`,
+        `Couldn't reach ${meta.label} at ${cfg.baseUrl}. Is the gateway running (\`llm-gateway run\`)? If you reach it through a private zrok share, is \`zrok access private\` running too?`,
         true,
       );
     }

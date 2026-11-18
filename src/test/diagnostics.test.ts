@@ -176,3 +176,110 @@ test('fileMessages and askMessages include static code analysis diagnostics when
   assert.match(askText, /<untrusted_diagnostics>/);
   assert.match(askText, /Line 11 \(ERROR\): Type string is not assignable to type number/);
 });
+
+test('diagnostics that do not match the diff are neither sent to the AI nor part of the cache key', async () => {
+  const { fileMessages } = await import('../ai/prompts');
+  const { diagnosticsDigest, usableDiagnostics } = await import('../core/diagnostics');
+  const diagnostics = [{ line: 11, message: 'Unused variable', severity: 'warning' as const }];
+  const session = {
+    id: 's', repoRoot: '/r', repoName: 'r', scope: { kind: 'commit' as const, sha: 'abc' },
+    title: 't', subtitle: 's', commits: [], files: [], additions: 3, deletions: 1, leftRef: 'p', rightRef: 'abc',
+  };
+  for (const status of ['stale', 'unsaved', 'pending'] as const) {
+    const file = makeFile({ diagnostics, diagnosticsStatus: status });
+    assert.deepEqual(usableDiagnostics(file), []);
+    assert.equal(diagnosticsDigest(file), '');
+    const text = fileMessages(session, file, undefined, 10000, 'English').map((m) => m.content).join('\n');
+    assert.doesNotMatch(text, /untrusted_diagnostics/, `${status} diagnostics are not sent`);
+  }
+  const ready = makeFile({ diagnostics, diagnosticsStatus: 'ready' });
+  assert.equal(diagnosticsDigest(ready), '11:warning:Unused variable');
+  assert.equal(diagnosticsDigest(makeFile({ diagnostics })), '11:warning:Unused variable', 'files built before statuses existed still count');
+});
+
+test('credential-shaped strings in diagnostic messages are redacted before reaching the AI', async () => {
+  const { fileMessages } = await import('../ai/prompts');
+  const key = 'AKIA' + 'ABCDEFGHIJKLMNOP';
+  const file = makeFile({ diagnostics: [{ line: 11, message: `Unknown word "${key}"`, severity: 'info', source: 'cSpell' }], diagnosticsStatus: 'ready' });
+  const session = {
+    id: 's', repoRoot: '/r', repoName: 'r', scope: { kind: 'working' as const },
+    title: 't', subtitle: 's', commits: [], files: [file], additions: 3, deletions: 1, leftRef: 'HEAD',
+  };
+  const text = fileMessages(session, file, undefined, 10000, 'English').map((m) => m.content).join('\n');
+  assert.ok(!text.includes(key));
+  assert.match(text, /Unknown word "\[REDACTED\]"/);
+});
+
+test('a pre-warmed file explanation is found again when diagnostics match, and not when they differ', async () => {
+  const fs = await import('fs/promises');
+  const os = await import('os');
+  const path = await import('path');
+  const { Analyzer } = await import('../ai/analyzer');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pr-this-key-'));
+  const realFetch = globalThis.fetch;
+  try {
+    const detail = JSON.stringify({ narrative: 'n', hunks: [] });
+    globalThis.fetch = (async () =>
+      new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: detail } }] })}\n\ndata: [DONE]\n\n`, { status: 200 })) as typeof fetch;
+    const cfg = { id: 'openaiCompatible' as const, baseUrl: 'http://localhost:8000/v1', model: 'm', temperature: 0.2, ollamaContextLength: 8192 };
+    const opts = { maxChars: 10000, language: 'English' };
+    const diagnostics = [{ line: 11, message: 'Unused variable', severity: 'warning' as const }];
+    const session = {
+      id: 's', repoRoot: '/r', repoName: 'r', scope: { kind: 'working' as const },
+      title: 't', subtitle: 's', commits: [], files: [], additions: 3, deletions: 1, leftRef: 'HEAD',
+    };
+    const analyzer = new Analyzer(dir);
+    await analyzer.fileDetail(session, makeFile({ diagnostics, diagnosticsStatus: 'ready' }), undefined, cfg, opts);
+    assert.equal(await analyzer.hasFileDetail(makeFile({ diagnostics, diagnosticsStatus: 'ready' }), undefined, cfg, opts), true);
+    assert.equal(await analyzer.hasFileDetail(makeFile({ diagnostics: [], diagnosticsStatus: 'ready' }), undefined, cfg, opts), false);
+  } finally {
+    globalThis.fetch = realFetch;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('background pre-warming settles static analysis before checking the cache', async () => {
+  const { BackgroundQueue, prewarmSessionFiles } = await import('../ai/prewarm');
+  const file = makeFile();
+  const session = {
+    id: 's', repoRoot: '/r', repoName: 'r', scope: { kind: 'working' as const },
+    title: 't', subtitle: 's', commits: [], files: [file], additions: 3, deletions: 1, leftRef: 'HEAD',
+  };
+  const seen: string[] = [];
+  const analyzer = {
+    hasFileDetail: async (f: DiffFile) => {
+      seen.push(`has:${f.diagnosticsStatus}`);
+      return false;
+    },
+    fileDetail: async (_s: unknown, f: DiffFile) => {
+      seen.push(`run:${f.diagnosticsStatus}`);
+      return { path: f.path, narrative: '', hunks: [] };
+    },
+  };
+  const overview = { headline: '', intent: '', summary: '', changeType: 'fix', risk: { level: 'low' as const, reasons: [] }, keyChanges: [], reviewFocus: [], components: [], flows: [], files: [] };
+  const queue = new BackgroundQueue();
+  const cfg = { id: 'ollama' as const, baseUrl: '', model: 'm', temperature: 0.2, ollamaContextLength: 8192 };
+  await new Promise<void>((resolve) => {
+    prewarmSessionFiles(
+      queue,
+      analyzer as never,
+      session,
+      overview,
+      async () => ({ cfg, maxChars: 10000, language: 'English' }),
+      1,
+      async (f) => {
+        seen.push('prepare');
+        f.diagnostics = [];
+        f.diagnosticsStatus = 'ready';
+      },
+    );
+    const t = setInterval(() => {
+      if (seen.length >= 3) {
+        clearInterval(t);
+        resolve();
+      }
+    }, 5);
+  });
+  queue.dispose();
+  assert.deepEqual(seen, ['prepare', 'has:ready', 'run:ready']);
+});

@@ -90,7 +90,7 @@ export function reducer(s: State, a: Action): State {
       return { ...s, images: { ...s.images, [a.path]: a.image } };
     case 'file:diagnostics': {
       if (!s.session) return s;
-      const files = s.session.files.map((f) => (f.path === a.path ? { ...f, diagnostics: a.diagnostics } : f));
+      const files = s.session.files.map((f) => (f.path === a.path ? { ...f, diagnostics: a.diagnostics, diagnosticsStatus: a.status } : f));
       return { ...s, session: { ...s.session, files } };
     }
     case 'zoom': {

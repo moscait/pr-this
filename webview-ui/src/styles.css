@@ -402,6 +402,11 @@ button.crumb:hover { background: var(--card-hover); color: var(--fg); }
 .lines-main { overflow: auto; padding: 10px 4px 40px 0; }
 .file-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; position: sticky; top: 0; background: var(--bg); padding: 6px 0; z-index: 2; flex-wrap: wrap; }
 .file-head-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }
+.diag-status-note { margin: -4px 0 10px; padding: 6px 10px; border-radius: 6px; background: var(--card); border-left: 3px solid var(--muted); }
+.diag-status-note.pending { border-left-color: var(--c-info); }
+.diag-status-note.stale, .diag-status-note.unsaved { border-left-color: var(--c-warn); }
+.static-analysis .sa-summary { margin: 0 0 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.static-analysis .sa-notes { margin: 10px 0 0; padding-left: 18px; }
 .file-diagnostics-badge { display: inline-flex; align-items: center; gap: 6px; margin-left: 2px; }
 .diag-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; font-family: var(--mono); }
 .diag-pill.error { color: var(--c-risk); background: color-mix(in srgb, var(--c-risk) 16%, transparent); border: 1px solid color-mix(in srgb, var(--c-risk) 40%, transparent); }

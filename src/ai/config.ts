@@ -122,6 +122,12 @@ export async function resolveProvider(secrets: vscode.SecretStorage): Promise<Pr
   return cfg;
 }
 
+const GATEWAY_EXPLAINER = [
+  'The gateway is a router. Depending on the model you choose, your diffs go to OpenAI (gpt-*, o*), to Anthropic (claude-*), or to the models the gateway serves itself. With the "auto" model, the gateway decides.',
+  "PR This can't see the gateway's routing, so it treats the gateway as a cloud provider even on localhost: the panel shows a cloud badge, and explanations aren't generated in the background unless prThis.backgroundPrewarm is \"always\".",
+  'zrok is optional. Normally you enter the address the gateway listens on (default http://localhost:8080/v1). Only if the gateway is shared privately over zrok, run "zrok access private <token>" and enter the local address it prints.',
+].join('\n\n');
+
 /** The gateway's virtual `auto` model (semantic routing) when it offers one; otherwise the user must choose. */
 async function gatewayAutoModel(cfg: ProviderConfig): Promise<string> {
   const k = `${cfg.id}|${cfg.baseUrl}`;
@@ -201,6 +207,15 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
   const cfgTarget = vscode.ConfigurationTarget.Global;
   const conf = vscode.workspace.getConfiguration('prThis');
 
+  if (pick.id === 'llmGateway' && current.provider !== 'llmGateway') {
+    const ok = await vscode.window.showInformationMessage(
+      'About the OpenZiti LLM Gateway',
+      { modal: true, detail: GATEWAY_EXPLAINER },
+      'Continue',
+    );
+    if (ok !== 'Continue') return false;
+  }
+
   let baseUrl = pick.id === current.provider ? current.baseUrl : '';
   if (isUserServer(pick.id) || (meta.local && baseUrl)) {
     const v = await vscode.window.showInputBox({
@@ -208,7 +223,7 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
       value: baseUrl || meta.defaultBaseUrl,
       prompt:
         pick.id === 'llmGateway'
-          ? 'The gateway base URL including /v1 (for a private zrok share, the local address from `zrok access private`).'
+          ? 'The address the gateway listens on, ending in /v1. zrok is optional: only for a private zrok share, use the local address `zrok access private` prints.'
           : 'The server base URL (include /v1 for OpenAI-compatible servers).',
       ignoreFocusOut: true,
     });

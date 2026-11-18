@@ -164,7 +164,7 @@
             "Ollama running locally (OpenAI-compatible endpoint)",
             "LM Studio local server",
             "Any OpenAI-compatible server (vLLM, llama.cpp, LiteLLM, OpenRouter, …)",
-            "OpenZiti LLM Gateway (openziti/llm-gateway), optionally reached over a zrok/OpenZiti share",
+            "OpenZiti LLM Gateway (openziti/llm-gateway). Routes each request to OpenAI, Anthropic, or self-hosted models by model name, so PR This treats it as a cloud provider even on localhost. zrok is optional.",
             "OpenAI",
             "Anthropic Claude",
             "Google Gemini"
@@ -183,6 +183,21 @@
           "default": "",
           "description": "Override the provider base URL (e.g. http://localhost:11434/v1). Can only be set in user settings, so a workspace cannot send your API key to another server.",
           "scope": "machine"
+        },
+        "prThis.staticAnalysis": {
+          "type": "string",
+          "default": "openFiles",
+          "enum": [
+            "openFiles",
+            "reportedOnly",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Open changed files in the background (no editor tabs) so your language extensions and linters analyse them. Results appear without opening each file yourself.",
+            "Only use problems your language extensions have already reported, which is usually just for files open in an editor.",
+            "Don't show static analysis results or send them to the AI."
+          ],
+          "markdownDescription": "Show problems that your language extensions and linters (TypeScript, ESLint, Pylance, …) report on the changed lines, and pass them to the AI. PR This runs no analysis of its own. For a commit or branch comparison, results are only shown for files whose content on disk still matches that version."
         },
         "prThis.temperature": {
           "type": "number",
