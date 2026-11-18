@@ -4,6 +4,7 @@
   "description": "Understand any commit, branch comparison, or working change at a glance. Zoom from a one-line intent down to line-level explanations, powered by local or cloud AI.",
   "version": "0.1.0",
   "publisher": "moscait",
+  "author": "Mosca IT LLC",
   "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"

@@ -2,7 +2,7 @@
 
 Understand any commit, branch comparison, or uncommitted working change at a glance. Zoom continuously from a one-line intent down to hunk-level explanations, powered by locally running AI or popular cloud offerings.
 
-Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively as an interactive Visual Studio Code extension with animated architecture diagrams, blast-radius analysis, and code-review navigation.
+Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively by **Mosca IT LLC** as an interactive Visual Studio Code extension with animated architecture diagrams, blast-radius analysis, and code-review navigation.
 
 ---
 
