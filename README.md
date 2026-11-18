@@ -19,6 +19,7 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively b
   - Branch / range comparisons (PR-style merge-base diffs).
 - **Run Locally or in the Cloud**:
   - **Local**: Ollama (e.g. `qwen2.5-coder:7b`, `deepseek-coder`, `llama3.1`), LM Studio, or any OpenAI-compatible server (vLLM, llama.cpp).
+  - **Gateway**: optionally route through an [OpenZiti LLM Gateway](https://github.com/openziti/llm-gateway), including over a private zrok share.
   - **Cloud**: OpenAI (default `gpt-4.1-mini`), Anthropic Claude (default `claude-sonnet-5-5`), Google Gemini (default `gemini-flash-latest`, Google's alias for its current Flash model). The model picker lists every chat model your API key can use, and requests adapt to models that reject parameters such as `temperature`.
   - `prThis.reasoningEffort` (default `medium`) sets how long reasoning models think: lower for faster overviews, `high` for the most thorough review.
   - API keys are stored in VS Code SecretStorage — never saved to settings or plain text.
@@ -126,6 +127,7 @@ After opening the extension:
    - **Ollama (Local)**: Default `http://localhost:11434`. Auto-detects installed models (e.g. `qwen2.5-coder:7b`). Make sure `ollama serve` is running.
    - **LM Studio (Local)**: Default `http://localhost:1234/v1`.
    - **OpenAI-compatible**: Custom base URL for vLLM, llama.cpp, LiteLLM, or OpenRouter.
+   - **OpenZiti LLM Gateway** (optional): Default `http://localhost:8080/v1`. Points PR This at an [openziti/llm-gateway](https://github.com/openziti/llm-gateway) instance, which routes `gpt-*`/`o*` models to OpenAI, `claude-*` to Anthropic, and everything else to its local backends. Paste a virtual key from `llm-gateway genkey` if the gateway has `api_keys` enabled (otherwise leave it empty). To use a gateway shared privately over zrok, run `zrok access private <share-token>` and use the local address it prints as the base URL. Leave the model empty to use the gateway's `auto` model when semantic routing is enabled. Because the gateway can forward code to cloud providers, PR This always treats it as a cloud provider, even on `localhost`, so it is never shown as local and background pre-warming is off unless `prThis.backgroundPrewarm` is `always`.
    - **Google Gemini**: Paste your API key (defaults to `gemini-flash-latest`).
    - **Anthropic**: Paste your API key (defaults to `claude-sonnet-5-5`).
    - **OpenAI**: Paste your API key (defaults to `gpt-4.1-mini`).
@@ -150,7 +152,7 @@ After opening the extension:
 
 | Setting | Default | Scope | Description |
 | :--- | :--- | :--- | :--- |
-| `prThis.provider` | `"ollama"` | User (`machine`) | AI provider (`ollama`, `lmstudio`, `openaiCompatible`, `openai`, `anthropic`, `gemini`). Can only be set in user settings. |
+| `prThis.provider` | `"ollama"` | User (`machine`) | AI provider (`ollama`, `lmstudio`, `openaiCompatible`, `llmGateway`, `openai`, `anthropic`, `gemini`). Can only be set in user settings. |
 | `prThis.model` | `""` | User (`machine`) | Model name. Leave empty to use the provider default. Can only be set in user settings. |
 | `prThis.baseUrl` | `""` | User (`machine`) | Override the provider base URL. Can only be set in user settings. |
 | `prThis.temperature` | `0.2` | Workspace | Sampling temperature (`0`–`2`). |
@@ -176,5 +178,5 @@ After opening the extension:
   - The cache keeps at most **2,000 entries** and automatically prunes entries unused for more than **30 days**.
   - Run **`PR This: Clear Explanation Cache`** (`prThis.clearCache`) from the Command Palette at any time to delete all cached explanations from disk.
 - **Credentials & Workspace Isolation**:
-  - API keys are stored in OS-backed VS Code `SecretStorage` (scoped per origin for `openaiCompatible` servers).
+  - API keys are stored in OS-backed VS Code `SecretStorage` (scoped per origin for `openaiCompatible` and `llmGateway` servers).
   - Security-sensitive settings (`prThis.provider`, `prThis.model`, `prThis.baseUrl`, `prThis.maxDiffChars`, `prThis.sendSecretFiles`, and `prThis.backgroundPrewarm`) are `machine`-scoped and cannot be overridden by a repository's `.vscode/settings.json`.

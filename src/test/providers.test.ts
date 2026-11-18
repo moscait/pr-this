@@ -190,6 +190,42 @@ test('staysLocal checks loopback address for every local provider', () => {
   assert.equal(staysLocal('openai', ''), false);
 });
 
+test('LLM gateway uses the OpenAI wire format with an optional Bearer key', async () => {
+  const calls = stubFetch([openaiText('ok'), openaiText('ok')]);
+  await chat({ ...cfg('llmGateway', 'auto'), baseUrl: 'http://localhost:8080/v1/', apiKey: 'vk-123' }, msgs);
+  await chat({ ...cfg('llmGateway', 'qwen3'), baseUrl: 'http://localhost:8080/v1', apiKey: undefined }, msgs);
+  assert.equal(calls[0].url, 'http://localhost:8080/v1/chat/completions');
+  assert.equal(calls[0].headers.authorization, 'Bearer vk-123');
+  assert.ok(!('authorization' in calls[1].headers), 'no key, no auth header');
+  assert.ok(!('response_format' in calls[0].body) && !('reasoning_effort' in calls[0].body));
+});
+
+test('LLM gateway applies the routed provider temperature rule', () => {
+  assert.equal(acceptsTemperature('llmGateway', 'claude-sonnet-5-5'), false);
+  assert.equal(acceptsTemperature('llmGateway', 'claude-sonnet-4-5'), true);
+  assert.equal(acceptsTemperature('llmGateway', 'gpt-5-mini'), false);
+  assert.equal(acceptsTemperature('llmGateway', 'o3-mini'), false);
+  assert.equal(acceptsTemperature('llmGateway', 'gpt-4.1-mini'), true);
+  assert.equal(acceptsTemperature('llmGateway', 'qwen3'), true);
+});
+
+test('LLM gateway is never treated as local, even on loopback', () => {
+  assert.equal(staysLocal('llmGateway', ''), false);
+  assert.equal(staysLocal('llmGateway', 'http://127.0.0.1:8080/v1'), false);
+});
+
+test('LLM gateway unreachable error points at the gateway and zrok', async () => {
+  globalThis.fetch = (async () => {
+    throw new TypeError('fetch failed');
+  }) as typeof fetch;
+  await assert.rejects(chat({ ...cfg('llmGateway', 'auto'), baseUrl: 'http://localhost:8080/v1' }, msgs), (e: ProviderError) => {
+    assert.ok(e.needsConfig);
+    assert.match(e.message, /OpenZiti LLM Gateway at http:\/\/localhost:8080\/v1/);
+    assert.match(e.message, /zrok access private/);
+    return true;
+  });
+});
+
 test('selectOllamaNumCtx picks the smallest tier that fits prompt + output up to configuredMax', () => {
   assert.equal(selectOllamaNumCtx(msgs, 32768, 4096), 8192);
   const medium = [{ role: 'user' as const, content: 'x'.repeat(24000) }];

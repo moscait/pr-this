@@ -317,6 +317,12 @@ test('secretKeyForProvider scopes openaiCompatible keys by origin and flags inse
     secretKeyForProvider('openaiCompatible', 'https://openrouter.ai/api/v1'),
     secretKeyForProvider('openaiCompatible', 'https://api.groq.com/openai/v1'),
   );
+  assert.equal(secretKeyForProvider('llmGateway', 'http://localhost:8080/v1'), 'prThis.apiKey.llmGateway.http://localhost:8080');
+  assert.notEqual(
+    secretKeyForProvider('llmGateway', 'http://localhost:8080/v1'),
+    secretKeyForProvider('openaiCompatible', 'http://localhost:8080/v1'),
+    'gateway and generic server keys never collide',
+  );
   assert.equal(isInsecureRemoteUrl('http://localhost:8000/v1'), false);
   assert.equal(isInsecureRemoteUrl('https://openrouter.ai/api/v1'), false);
   assert.equal(isInsecureRemoteUrl('http://remote-llm.example.com:8000/v1'), true);

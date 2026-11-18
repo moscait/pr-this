@@ -3,6 +3,7 @@ import type { ProviderInfo } from '../shared/types';
 import { sanitizeLanguage } from './prompts';
 import {
   isInsecureRemoteUrl,
+  isUserServer,
   listModels,
   PROVIDERS,
   ProviderConfig,
@@ -98,7 +99,9 @@ export async function resolveProvider(secrets: vscode.SecretStorage): Promise<Pr
     ollamaContextLength: s.ollamaContextLength,
     reasoningEffort: s.reasoningEffort,
   };
-  if (!cfg.model && meta.local) {
+  if (!cfg.model && meta.id === 'llmGateway') {
+    cfg.model = await gatewayAutoModel(cfg);
+  } else if (!cfg.model && meta.local) {
     const k = `${cfg.id}|${cfg.baseUrl}`;
     let m = autoModel.get(k);
     if (!m) {
@@ -117,6 +120,22 @@ export async function resolveProvider(secrets: vscode.SecretStorage): Promise<Pr
     cfg.model = m;
   }
   return cfg;
+}
+
+/** The gateway's virtual `auto` model (semantic routing) when it offers one; otherwise the user must choose. */
+async function gatewayAutoModel(cfg: ProviderConfig): Promise<string> {
+  const k = `${cfg.id}|${cfg.baseUrl}`;
+  const cached = autoModel.get(k);
+  if (cached) return cached;
+  const models = await listModels(cfg);
+  if (!models.includes('auto')) {
+    throw new ProviderError(
+      `No model selected for ${PROVIDERS.llmGateway.label}, and semantic routing (the \`auto\` model) is not enabled. Choose a model in PR This settings.`,
+      true,
+    );
+  }
+  autoModel.set(k, 'auto');
+  return 'auto';
 }
 
 export interface RunContext {
@@ -170,8 +189,8 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
   const current = settings();
   const pick = await vscode.window.showQuickPick(
     Object.values(PROVIDERS).map((p) => ({
-      label: `${p.id === 'openaiCompatible' ? '$(server)' : p.local ? '$(vm)' : '$(cloud)'} ${p.label}`,
-      description: p.id === current.provider ? 'current' : p.id === 'openaiCompatible' ? 'local or cloud' : p.local ? 'local' : 'cloud',
+      label: `${isUserServer(p.id) ? '$(server)' : p.local ? '$(vm)' : '$(cloud)'} ${p.label}`,
+      description: p.id === current.provider ? 'current' : isUserServer(p.id) ? 'local or cloud' : p.local ? 'local' : 'cloud',
       detail: p.detail,
       id: p.id,
     })),
@@ -183,11 +202,14 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
   const conf = vscode.workspace.getConfiguration('prThis');
 
   let baseUrl = pick.id === current.provider ? current.baseUrl : '';
-  if (pick.id === 'openaiCompatible' || (meta.local && baseUrl)) {
+  if (isUserServer(pick.id) || (meta.local && baseUrl)) {
     const v = await vscode.window.showInputBox({
       title: `${meta.label} · Base URL`,
       value: baseUrl || meta.defaultBaseUrl,
-      prompt: 'The server base URL (include /v1 for OpenAI-compatible servers).',
+      prompt:
+        pick.id === 'llmGateway'
+          ? 'The gateway base URL including /v1 (for a private zrok share, the local address from `zrok access private`).'
+          : 'The server base URL (include /v1 for OpenAI-compatible servers).',
       ignoreFocusOut: true,
     });
     if (v === undefined) return false;
@@ -200,7 +222,7 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
   let newKey: string | undefined;
   let hasKey = false;
 
-  if (meta.needsKey || pick.id === 'openaiCompatible') {
+  if (meta.needsKey || isUserServer(pick.id)) {
     const existing = await loadApiKey(secrets, meta.id, effectiveBaseUrl, sameBaseUrl);
     const v = await vscode.window.showInputBox({
       title: `${meta.label} · API key`,
@@ -208,7 +230,9 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
         ? 'An API key is stored for this server. Leave empty to keep it, or paste a new one.'
         : meta.needsKey
           ? 'Paste your API key. It is stored in VS Code Secret Storage, never in settings.'
-          : 'Optional API key (leave empty if your server does not need one).',
+          : pick.id === 'llmGateway'
+            ? 'Optional gateway virtual API key (from `llm-gateway genkey`). Leave empty if the gateway has no api_keys configured.'
+            : 'Optional API key (leave empty if your server does not need one).',
       password: true,
       ignoreFocusOut: true,
     });
@@ -254,13 +278,15 @@ export async function configureProvider(secrets: vscode.SecretStorage): Promise<
 
   const MANUAL = '$(edit) Enter model name…';
   const AUTO = '$(sparkle) Auto-detect best installed model';
+  const GATEWAY_AUTO = 'auto';
   const currentModel = pick.id === current.provider ? current.model : '';
   const items: vscode.QuickPickItem[] = [];
   if (meta.local) items.push({ label: AUTO, description: currentModel ? '' : 'current' });
   const sorted = meta.local ? models : [...models].sort();
   const best = meta.local ? pickBestLocalModel(models) : meta.defaultModel;
   for (const m of sorted) {
-    items.push({ label: m, description: [m === currentModel ? 'current' : '', m === best ? 'recommended' : ''].filter(Boolean).join(' · ') });
+    const routed = pick.id === 'llmGateway' && m === GATEWAY_AUTO ? 'semantic routing' : '';
+    items.push({ label: m, description: [m === currentModel ? 'current' : '', m === best ? 'recommended' : '', routed].filter(Boolean).join(' · ') });
   }
   items.push({ label: MANUAL });
   const chosen = await vscode.window.showQuickPick(items, {

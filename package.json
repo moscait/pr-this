@@ -155,6 +155,7 @@
             "ollama",
             "lmstudio",
             "openaiCompatible",
+            "llmGateway",
             "openai",
             "anthropic",
             "gemini"
@@ -163,6 +164,7 @@
             "Ollama running locally (OpenAI-compatible endpoint)",
             "LM Studio local server",
             "Any OpenAI-compatible server (vLLM, llama.cpp, LiteLLM, OpenRouter, …)",
+            "OpenZiti LLM Gateway (openziti/llm-gateway), optionally reached over a zrok/OpenZiti share",
             "OpenAI",
             "Anthropic Claude",
             "Google Gemini"
