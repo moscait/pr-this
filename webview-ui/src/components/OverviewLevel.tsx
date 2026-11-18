@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 import type { Dispatch } from 'react';
 import type { Action, State } from '../state';
 import { Markdown, inline } from './Markdown';
@@ -7,8 +7,8 @@ import { Icon, SeverityIcon } from './Icons';
 import { send } from '../vscode';
 import { StaticAnalysisCard } from './Diagnostics';
 
-const stagger = { animate: { transition: { staggerChildren: 0.05 } } };
-const rise = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 260, damping: 26 } } };
+const stagger: Variants = { animate: { transition: { staggerChildren: 0.05 } } };
+const rise: Variants = { initial: { opacity: 0, y: 10 }, animate: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 260, damping: 26 } } };
 
 const TYPE_LABEL: Record<string, string> = {
   feature: 'Feature',
