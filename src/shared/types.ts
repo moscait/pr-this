@@ -36,6 +36,19 @@ export interface ImageDiff {
   after?: ImageSide;
 }
 
+export type DiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
+
+export interface DiffDiagnostic {
+  /** 1-based start line in the modified file. */
+  line: number;
+  /** 1-based end line if the diagnostic spans multiple lines. */
+  endLine?: number;
+  message: string;
+  severity: DiagnosticSeverity;
+  source?: string;
+  code?: string | number;
+}
+
 export interface DiffFile {
   path: string;
   oldPath?: string;
@@ -46,6 +59,8 @@ export interface DiffFile {
   hunks: DiffHunk[];
   /** Present for graphic files (.svg, .png, .jpg, .webp, .gif, .ico, .bmp, .avif) with dimensions and byte sizes. */
   image?: ImageDiff;
+  /** Static code analysis diagnostics detected on modified lines in this file. */
+  diagnostics?: DiffDiagnostic[];
   /** Listed in the UI but not sent to the AI (lock files, generated code, secrets, …). */
   excluded?: boolean;
   /** Why the file is not sent to the AI, shown to the user and in the prompt. */
@@ -168,6 +183,7 @@ export type HostMessage =
   | { type: 'file'; path: string; detail: FileDetail }
   | { type: 'file:error'; path: string; message: string }
   | { type: 'file:image'; path: string; image: ImageDiff }
+  | { type: 'file:diagnostics'; path: string; diagnostics: DiffDiagnostic[] }
   | { type: 'ask:chunk'; id: string; text: string }
   | { type: 'ask:done'; id: string }
   | { type: 'ask:error'; id: string; message: string };

@@ -46,9 +46,9 @@ export class Analyzer {
     this.onWrite = onWrite;
   }
 
-  private key(kind: string, cfg: ProviderConfig, language: string, content: string): string {
+  private key(kind: string, cfg: ProviderConfig, language: string, content: string, extra = ''): string {
     return createHash('sha256')
-      .update(JSON.stringify([PROMPT_VERSION, kind, cfg.id, cfg.baseUrl, cfg.model, language, content]))
+      .update(JSON.stringify([PROMPT_VERSION, kind, cfg.id, cfg.baseUrl, cfg.model, language, content, extra]))
       .digest('hex')
       .slice(0, 40);
   }
@@ -177,8 +177,9 @@ export class Analyzer {
   }
 
   async fileDetail(s: ChangeSession, f: DiffFile, overview: Overview | undefined, cfg: ProviderConfig, o: Opts): Promise<FileDetail> {
-    // Key on the file diff and language only so regenerating the overview does not invalidate cached file explanations.
-    const key = this.key('file', cfg, o.language, renderFileDiff(f, o.maxChars, true));
+    // Key on the file diff, language, and static diagnostics so regenerating the overview does not invalidate cached file explanations.
+    const diagDigest = f.diagnostics?.length ? f.diagnostics.map((d) => `${d.line}:${d.severity}:${d.message}`).join('|') : '';
+    const key = this.key('file', cfg, o.language, renderFileDiff(f, o.maxChars, true), diagDigest);
     if (!o.force) {
       const hit = await this.read<FileDetail>(key);
       if (hit) return hit;

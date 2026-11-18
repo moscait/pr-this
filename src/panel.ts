@@ -10,6 +10,7 @@ import { overviewToMarkdown } from './ai/prompts';
 import { ProviderError } from './ai/providers';
 import { EMPTY_TREE, readImageRef, sameChange } from './core/git';
 import { buildImageSide } from './core/image';
+import { filterDiffDiagnostics } from './core/diagnostics';
 
 /** A webview panel showing one change session at all zoom levels. */
 export class LensPanel {
@@ -67,7 +68,33 @@ export class LensPanel {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'media', 'icon.svg');
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((raw: unknown) => this.onMessage(raw), null, this.disposables);
+    this.populateSessionDiagnostics();
+    vscode.languages.onDidChangeDiagnostics(
+      (e) => {
+        if (this.disposed) return;
+        for (const uri of e.uris) {
+          const rel = path.relative(this.session.repoRoot, uri.fsPath);
+          const f = this.session.files.find((x) => x.path === rel);
+          if (f && f.status !== 'deleted' && !f.binary) {
+            const diags = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(uri));
+            f.diagnostics = diags;
+            this.post({ type: 'file:diagnostics', path: f.path, diagnostics: diags });
+          }
+        }
+      },
+      null,
+      this.disposables,
+    );
     panel.webview.html = this.html();
+  }
+
+  private populateSessionDiagnostics(): void {
+    for (const f of this.session.files) {
+      if (f.status === 'deleted' || f.binary || f.excluded) continue;
+      const full = path.join(this.session.repoRoot, f.path);
+      const uri = vscode.Uri.file(full);
+      f.diagnostics = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(uri));
+    }
   }
 
   private post(m: HostMessage): void {
@@ -86,6 +113,7 @@ export class LensPanel {
     for (const c of this.askCtl.values()) c.abort();
     this.askCtl.clear();
     this.session = s;
+    this.populateSessionDiagnostics();
     this.overview = undefined;
     this.post({ type: 'session', session: s });
     void this.runOverview(false);
@@ -212,6 +240,10 @@ export class LensPanel {
     this.fileCtl.get(p)?.abort();
     const ctl = new AbortController();
     this.fileCtl.set(p, ctl);
+    if (f.status !== 'deleted' && !f.binary && !f.excluded) {
+      const full = path.join(session.repoRoot, f.path);
+      f.diagnostics = filterDiffDiagnostics(f, vscode.languages.getDiagnostics(vscode.Uri.file(full)));
+    }
     this.post({ type: 'file:start', path: p, startedAt: Date.now() });
     try {
       const detail = await this.bg.runInteractive(

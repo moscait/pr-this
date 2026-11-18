@@ -88,6 +88,11 @@ export function reducer(s: State, a: Action): State {
       return { ...s, files: { ...s.files, [a.path]: { status: 'error', message: a.message } } };
     case 'file:image':
       return { ...s, images: { ...s.images, [a.path]: a.image } };
+    case 'file:diagnostics': {
+      if (!s.session) return s;
+      const files = s.session.files.map((f) => (f.path === a.path ? { ...f, diagnostics: a.diagnostics } : f));
+      return { ...s, session: { ...s.session, files } };
+    }
     case 'zoom': {
       if (a.level === s.level && !a.file && a.component === undefined) return s;
       return {
