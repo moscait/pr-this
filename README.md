@@ -19,7 +19,7 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively b
   - Branch / range comparisons (PR-style merge-base diffs).
 - **Run Locally or in the Cloud**:
   - **Local**: Ollama (e.g. `qwen2.5-coder:7b`, `deepseek-coder`, `llama3.1`), LM Studio, or any OpenAI-compatible server (vLLM, llama.cpp).
-  - **Gateway**: optionally route through an [OpenZiti LLM Gateway](https://github.com/openziti/llm-gateway), including over a private zrok share.
+  - **Gateway**: optionally send requests through an [OpenZiti LLM Gateway](https://github.com/openziti/llm-gateway), which routes them to cloud or self-hosted models.
   - **Cloud**: OpenAI (default `gpt-4.1-mini`), Anthropic Claude (default `claude-sonnet-5-5`), Google Gemini (default `gemini-flash-latest`, Google's alias for its current Flash model). The model picker lists every chat model your API key can use, and requests adapt to models that reject parameters such as `temperature`.
   - `prThis.reasoningEffort` (default `medium`) sets how long reasoning models think: lower for faster overviews, `high` for the most thorough review.
   - API keys are stored in VS Code SecretStorage — never saved to settings or plain text.
@@ -127,10 +127,29 @@ After opening the extension:
    - **Ollama (Local)**: Default `http://localhost:11434`. Auto-detects installed models (e.g. `qwen2.5-coder:7b`). Make sure `ollama serve` is running.
    - **LM Studio (Local)**: Default `http://localhost:1234/v1`.
    - **OpenAI-compatible**: Custom base URL for vLLM, llama.cpp, LiteLLM, or OpenRouter.
-   - **OpenZiti LLM Gateway** (optional): Default `http://localhost:8080/v1`. Points PR This at an [openziti/llm-gateway](https://github.com/openziti/llm-gateway) instance, which routes `gpt-*`/`o*` models to OpenAI, `claude-*` to Anthropic, and everything else to its local backends. Paste a virtual key from `llm-gateway genkey` if the gateway has `api_keys` enabled (otherwise leave it empty). To use a gateway shared privately over zrok, run `zrok access private <share-token>` and use the local address it prints as the base URL. Leave the model empty to use the gateway's `auto` model when semantic routing is enabled. Because the gateway can forward code to cloud providers, PR This always treats it as a cloud provider, even on `localhost`, so it is never shown as local and background pre-warming is off unless `prThis.backgroundPrewarm` is `always`.
+   - **OpenZiti LLM Gateway** (optional): Default `http://localhost:8080/v1`. See [Using the OpenZiti LLM Gateway](#using-the-openziti-llm-gateway).
    - **Google Gemini**: Paste your API key (defaults to `gemini-flash-latest`).
    - **Anthropic**: Paste your API key (defaults to `claude-sonnet-5-5`).
    - **OpenAI**: Paste your API key (defaults to `gpt-4.1-mini`).
+
+### Using the OpenZiti LLM Gateway
+
+[openziti/llm-gateway](https://github.com/openziti/llm-gateway) puts OpenAI, Anthropic, and self-hosted models behind one OpenAI-compatible endpoint. PR This talks to it like any OpenAI-compatible server.
+
+- **Address**: the gateway's `listen` address plus `/v1`, e.g. `http://localhost:8080/v1`.
+- **API key**: optional. If the gateway has `api_keys` enabled, paste a virtual key from `llm-gateway genkey`. It is stored in SecretStorage for that gateway address only.
+- **Model**: the gateway routes by model name: `gpt-*`, `o1-*`, `o3-*` go to OpenAI, `claude-*` goes to Anthropic, and everything else goes to the gateway's self-hosted backends (Ollama, vLLM, llama-server, …). Leave the model empty to use the gateway's `auto` model, which exists only when semantic routing is enabled.
+
+**zrok is optional.** You don't need zrok or OpenZiti on your machine to use the gateway. zrok matters in only two cases:
+
+- The gateway runs on another machine and is shared **privately** over zrok. Run `zrok access private <share-token>` and use the local address it prints as the base URL. A **public** zrok share gives you an HTTPS URL to use directly.
+- The gateway reaches its own backends through zrok (`zrok_share_token` in its config). That is the gateway's business; PR This is not involved.
+
+> [!CAUTION]
+> **The gateway is treated as a cloud provider, even on `localhost`.** A local address does not mean your code stays local: depending on the model, the gateway may forward your diffs to OpenAI or Anthropic, and PR This cannot see its routing config. So the panel shows a cloud badge, background pre-warming is off unless `prThis.backgroundPrewarm` is `always`, and the larger cloud diff budget applies. Choose a model your gateway routes to a self-hosted backend if your code must not leave your network.
+
+> [!WARNING]
+> Use `https://` for a gateway on another host. Over plain `http://`, your diffs and gateway key cross the network unencrypted; PR This asks you to confirm before using such an address.
 
 ---
 

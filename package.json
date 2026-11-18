@@ -164,7 +164,7 @@
             "Ollama running locally (OpenAI-compatible endpoint)",
             "LM Studio local server",
             "Any OpenAI-compatible server (vLLM, llama.cpp, LiteLLM, OpenRouter, …)",
-            "OpenZiti LLM Gateway (openziti/llm-gateway), optionally reached over a zrok/OpenZiti share",
+            "OpenZiti LLM Gateway (openziti/llm-gateway). Routes each request to OpenAI, Anthropic, or self-hosted models by model name, so PR This treats it as a cloud provider even on localhost. zrok is optional.",
             "OpenAI",
             "Anthropic Claude",
             "Google Gemini"
