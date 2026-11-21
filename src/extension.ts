@@ -1,7 +1,8 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Analyzer } from './ai/analyzer';
-import { configureProvider, prewarmContext, runContext, settings } from './ai/config';
+import { configureProvider, decisionEngineConfig, prewarmContext, runContext, settings } from './ai/config';
+import { RelevanceScorer } from './ai/relevance';
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { StaticAnalysis } from './staticAnalysis';
 import { ChangesView } from './changesView';
@@ -37,6 +38,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const bg = new BackgroundQueue();
   const analysis = new StaticAnalysis();
   ctx.subscriptions.push(analysis);
+  const log = vscode.window.createOutputChannel('PR This', { log: true });
+  ctx.subscriptions.push(log);
+  const relevance = new RelevanceScorer(decisionEngineConfig, (level, message) => log[level](message));
   const cachedCommits = new Set<string>();
   const probedCommits = new Set<string>();
   let headTimer: NodeJS.Timeout | undefined;
@@ -110,7 +114,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     (root, sha) => cachedCommits.has(`${root}:${sha}`),
     onCommitsListed,
   );
-  const analyzer = new Analyzer(vscode.Uri.joinPath(ctx.globalStorageUri, 'cache').fsPath, 2000, 30, () => view.refresh());
+  const analyzer = new Analyzer(vscode.Uri.joinPath(ctx.globalStorageUri, 'cache').fsPath, 2000, 30, () => view.refresh(), relevance);
   ctx.subscriptions.push(vscode.window.registerTreeDataProvider('prThis.changes', view), { dispose: () => { clearTimeout(headTimer); bg.dispose(); } });
 
   const open = async (build: () => Promise<ChangeSession>, label: string, refresh = false) => {

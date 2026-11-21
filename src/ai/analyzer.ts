@@ -17,6 +17,7 @@ import {
   PROMPT_VERSION,
 } from './prompts';
 import { chat, ProviderConfig } from './providers';
+import type { RelevanceScorer } from './relevance';
 
 interface Opts {
   maxChars: number;
@@ -43,8 +44,17 @@ export class Analyzer {
     private readonly maxEntries = 2000,
     private readonly maxAgeDays = 30,
     onWrite?: () => void,
+    private readonly relevance?: Pick<RelevanceScorer, 'id' | 'scoresFor'>,
   ) {
     this.onWrite = onWrite;
+  }
+
+  /**
+   * The overview's cache key comes from the prompt without relevance scores plus the engine that scored it, so
+   * `hasOverview` can answer without asking the engine (its scores are deterministic for the same input).
+   */
+  private overviewKey(s: ChangeSession, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>, relevanceId?: string): string {
+    return this.key('overview', cfg, o.language, JSON.stringify(overviewMessages(s, o.maxChars, o.language)), relevanceId ? `relevance:${relevanceId}` : '');
   }
 
   private key(kind: string, cfg: ProviderConfig, language: string, content: string, extra = ''): string {
@@ -111,9 +121,9 @@ export class Analyzer {
   }
 
   async hasOverview(s: ChangeSession, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>): Promise<boolean> {
-    const messages = overviewMessages(s, o.maxChars, o.language);
-    const key = this.key('overview', cfg, o.language, JSON.stringify(messages));
-    return this.exists(key);
+    const id = this.relevance?.id();
+    if (id && (await this.exists(this.overviewKey(s, cfg, o, id)))) return true;
+    return this.exists(this.overviewKey(s, cfg, o));
   }
 
   async hasFileDetail(f: DiffFile, _overview: Overview | undefined, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>): Promise<boolean> {
@@ -123,8 +133,18 @@ export class Analyzer {
 
   async overview(s: ChangeSession, cfg: ProviderConfig, o: Opts): Promise<{ overview: Overview; cached: boolean }> {
     // The prompt holds everything the answer depends on (files, diff digest, commit messages), so it is the cache key.
-    const messages = overviewMessages(s, o.maxChars, o.language);
-    const key = this.key('overview', cfg, o.language, JSON.stringify(messages));
+    const id = this.relevance?.id();
+    if (!o.force && id) {
+      // Already explained, with relevance scores or before scoring was on: keep it rather than ask the engine.
+      // Regenerate (force) rescores.
+      for (const k of [this.overviewKey(s, cfg, o, id), this.overviewKey(s, cfg, o)]) {
+        const hit = await this.read<Overview>(k);
+        if (hit) return { overview: hit, cached: true };
+      }
+    }
+    const rel = await this.relevance?.scoresFor(s, o.maxChars, o.signal);
+    const messages = overviewMessages(s, o.maxChars, o.language, rel?.scores);
+    const key = this.overviewKey(s, cfg, o, rel?.id);
     if (!o.force) {
       const hit = await this.read<Overview>(key);
       if (hit) return { overview: hit, cached: true };

@@ -270,6 +270,40 @@
           "default": 50,
           "description": "Number of recent commits to list."
         },
+        "prThis.decisionEngine": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "local"
+          ],
+          "enumDescriptions": [
+            "Share the overview's diff budget by file size (small files first)",
+            "Ask a local decision engine (vej, jev-local, or llama.cpp with /v1/systemone) how central each file is, and give important files a larger share of the overview's diff budget"
+          ],
+          "markdownDescription": "Experimental. When a change is too large for `#prThis.maxDiffChars#`, score each file's relevance with a local \"System 1\" decision engine so the overview keeps the files that matter. Only used when the diff must be trimmed, and only with a server on this machine. Scores and timings are logged to the **PR This** output channel. Falls back to the size-based budget if the engine is not running. Can only be set in user settings.",
+          "scope": "machine"
+        },
+        "prThis.decisionEngineUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080",
+          "markdownDescription": "Address of the decision engine serving `POST /v1/systemone` (and `/v1/systemone/batch` when available). Must be on this machine (localhost or 127.x). vej and the OpenZiti LLM Gateway both default to port 8080, so run one of them on another port if you use both. Can only be set in user settings.",
+          "scope": "machine"
+        },
+        "prThis.decisionEngineModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model the decision engine scores with, e.g. `llama-3.2-1b`. Leave empty for the server's default.",
+          "scope": "machine"
+        },
+        "prThis.decisionEngineTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "maximum": 120000,
+          "markdownDescription": "How long to wait for relevance scores before falling back to the size-based budget. The first request may load the model.",
+          "scope": "machine"
+        },
         "prThis.backgroundPrewarm": {
           "type": "string",
           "default": "local",
