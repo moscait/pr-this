@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { DecisionEngineConfig } from './relevance';
 import type { ProviderInfo } from '../shared/types';
 import { sanitizeLanguage } from './prompts';
 import {
@@ -72,6 +73,18 @@ export function settings() {
     ollamaContextLength: c.get<number>('ollamaContextLength', 32768),
     reasoningEffort: effortSetting(c.get<string>('reasoningEffort', 'medium')),
     backgroundPrewarm: prewarmSetting(c.get<string>('backgroundPrewarm', 'local')),
+  };
+}
+
+/** The decision engine used to score file relevance for the overview, or undefined when off. */
+export function decisionEngineConfig(): DecisionEngineConfig | undefined {
+  const c = vscode.workspace.getConfiguration('prThis');
+  if (c.get<string>('decisionEngine', 'off') !== 'local') return undefined;
+  const timeout = c.get<number>('decisionEngineTimeoutMs', 15000);
+  return {
+    baseUrl: c.get<string>('decisionEngineUrl', 'http://127.0.0.1:8080').trim() || 'http://127.0.0.1:8080',
+    model: c.get<string>('decisionEngineModel', '').trim(),
+    timeoutMs: Number.isFinite(timeout) && timeout > 0 ? Math.min(timeout, 120000) : 15000,
   };
 }
 

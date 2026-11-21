@@ -444,35 +444,84 @@ const OMISSION_NOTE = 120;
 /** A file gets a (possibly truncated) diff only if this many characters beyond its header fit. */
 const MIN_DIFF_CHARS = 80;
 /** Options used when building multi-file diff digests so context stays compact. */
-const DIGEST_RENDER_OPTS: RenderDiffOptions = { contextLines: 1, compactDeletions: true };
+export const DIGEST_RENDER_OPTS: RenderDiffOptions = { contextLines: 1, compactDeletions: true };
+
+/** How a digest shares its budget: per file, the characters of its full diff and the characters it gets (0 = left out). */
+export interface DiffDigestPlan {
+  full: string[];
+  budgets: number[];
+}
 
 /**
- * Fit all file diffs into a character budget using water-filling: small files are
- * included whole, the remaining budget is shared evenly among larger ones. When even an
- * even share is too small to be useful, the smallest remaining files are kept whole and
- * the rest are left out with a note. The result is never longer than `maxChars`
- * (for any budget of at least a few hundred characters).
+ * Share a character budget among file diffs using water-filling, files needing the least first, so small files are
+ * included whole and the rest is shared among larger ones.
+ * - Without `weights`, shares are even; when an even share is too small to be useful, the smallest remaining files
+ *   are kept whole and the rest are left out.
+ * - With `weights` (one per file), shares are in proportion to weight, and the least important files are left out
+ *   until every kept file gets a useful share.
  */
-export function buildDiffDigest(files: DiffFile[], maxChars: number): string {
+export function planDiffDigest(files: DiffFile[], maxChars: number, weights?: readonly number[]): DiffDigestPlan {
   const full = files.map((f) => renderFileDiff(f, Infinity, DIGEST_RENDER_OPTS));
   const total = full.reduce((a, s) => a + s.length, 0) + FILE_SEPARATOR.length * Math.max(0, files.length - 1);
-  if (total <= maxChars) return full.join(FILE_SEPARATOR);
+  if (total <= maxChars) return { full, budgets: full.map((s) => s.length) };
 
-  const order = files.map((_, i) => i).sort((a, b) => full[a].length - full[b].length);
-  const budgets = new Array<number>(files.length).fill(0);
-  let remaining = maxChars - OMISSION_NOTE - FILE_SEPARATOR.length * files.length;
-  order.forEach((idx, k) => {
-    const headerLength = full[idx].indexOf('\n') < 0 ? full[idx].length : full[idx].indexOf('\n');
-    const min = Math.min(full[idx].length, headerLength + MIN_DIFF_CHARS);
-    const share = Math.floor(remaining / (order.length - k));
-    // An even share if it is useful, else whatever is left, so files are dropped rather than starved.
-    const b = Math.min(full[idx].length, share >= min ? share : remaining);
-    if (b >= min) {
-      budgets[idx] = b;
-      remaining -= b;
-    }
+  const base = maxChars - OMISSION_NOTE - FILE_SEPARATOR.length * files.length;
+  const mins = full.map((text) => {
+    const headerLength = text.indexOf('\n') < 0 ? text.length : text.indexOf('\n');
+    return Math.min(text.length, headerLength + MIN_DIFF_CHARS);
   });
 
+  if (!weights) {
+    const order = files.map((_, i) => i).sort((a, b) => full[a].length - full[b].length);
+    const budgets = new Array<number>(files.length).fill(0);
+    let remaining = base;
+    order.forEach((idx, k) => {
+      const share = Math.floor(remaining / (order.length - k));
+      // An even share if it is useful, else whatever is left, so files are dropped rather than starved.
+      const b = Math.min(full[idx].length, share >= mins[idx] ? share : remaining);
+      if (b >= mins[idx]) {
+        budgets[idx] = b;
+        remaining -= b;
+      }
+    });
+    return { full, budgets };
+  }
+
+  const w = files.map((_, i) => {
+    const v = weights[i];
+    return v !== undefined && Number.isFinite(v) && v > 0 ? v : 1;
+  });
+  // Water-fill the kept files in proportion to weight; undefined when one of them would get less than is useful.
+  const fill = (kept: number[]): number[] | undefined => {
+    const budgets = new Array<number>(files.length).fill(0);
+    let remaining = base;
+    let weightLeft = kept.reduce((a, i) => a + w[i], 0);
+    for (const idx of [...kept].sort((a, b) => full[a].length / w[a] - full[b].length / w[b])) {
+      const share = Math.floor((remaining * w[idx]) / weightLeft);
+      weightLeft -= w[idx];
+      if (share < mins[idx]) return undefined;
+      budgets[idx] = Math.min(full[idx].length, share);
+      remaining -= budgets[idx];
+    }
+    return budgets;
+  };
+  // Leave out the least important files (the largest first among equals) until every kept file gets a useful share.
+  const kept = files.map((_, i) => i).sort((a, b) => w[b] - w[a] || full[a].length - full[b].length);
+  while (kept.length) {
+    const budgets = fill(kept);
+    if (budgets) return { full, budgets };
+    kept.pop();
+  }
+  return { full, budgets: new Array<number>(files.length).fill(0) };
+}
+
+/**
+ * Fit all file diffs into a character budget (see `planDiffDigest`), noting files left out. `weights`, one per file,
+ * give more important files a larger share. The result is never longer than `maxChars`
+ * (for any budget of at least a few hundred characters).
+ */
+export function buildDiffDigest(files: DiffFile[], maxChars: number, weights?: readonly number[]): string {
+  const { full, budgets } = planDiffDigest(files, maxChars, weights);
   const parts: string[] = [];
   let omitted = 0;
   files.forEach((f, i) => {

@@ -10,7 +10,7 @@ import type {
   ReviewFocus,
   Severity,
 } from '../shared/types';
-import { buildDiffDigest, redactSecrets, renderFileDiff } from '../core/diff';
+import { buildDiffDigest, planDiffDigest, redactSecrets, renderFileDiff, type DiffDigestPlan } from '../core/diff';
 import { usableDiagnostics } from '../core/diagnostics';
 import { describeImageMeta } from '../core/image';
 import type { ChatMessage } from './providers';
@@ -208,11 +208,45 @@ export const FILE_DETAIL_JSON_SCHEMA: Record<string, unknown> = {
   },
 };
 
-export function overviewMessages(s: ChangeSession, maxChars: number, language: string): ChatMessage[] {
+/** Highest relevance score a decision engine gives a file (see `src/ai/relevance.ts`). */
+export const MAX_RELEVANCE = 4;
+/** Weight of a file with no relevance score, when other files have one: the middle of the scale. */
+const UNSCORED_RELEVANCE = MAX_RELEVANCE / 2;
+
+/** A file's share of the overview diff budget from its relevance score (0-4): each step doubles it, so 1x to 16x. */
+export function relevanceWeight(score: number | undefined): number {
+  const v = score === undefined || !Number.isFinite(score) ? UNSCORED_RELEVANCE : Math.min(MAX_RELEVANCE, Math.max(0, score));
+  return 2 ** v;
+}
+
+function overviewDigestInput(s: ChangeSession, maxChars: number, relevance?: ReadonlyMap<string, number>) {
   const aiFiles = s.files.filter((f) => !f.excluded);
   // File list and diff share the budget, so the whole prompt stays near maxChars.
   const list = fileTable(s.files, Math.floor(maxChars * FILE_LIST_SHARE));
-  const digest = buildDiffDigest(aiFiles, Math.max(1000, maxChars - list.length));
+  const budget = Math.max(1000, maxChars - list.length);
+  const weights = relevance ? aiFiles.map((f) => relevanceWeight(relevance.get(f.path))) : undefined;
+  return { aiFiles, list, budget, weights };
+}
+
+/** How the overview prompt shares its diff budget among files, with or without relevance scores. */
+export function overviewDigestPlan(s: ChangeSession, maxChars: number, relevance?: ReadonlyMap<string, number>): DiffDigestPlan & { files: DiffFile[] } {
+  const { aiFiles, budget, weights } = overviewDigestInput(s, maxChars, relevance);
+  return { files: aiFiles, ...planDiffDigest(aiFiles, budget, weights) };
+}
+
+/** Whether the overview diff must be trimmed to fit, the only case where relevance scores change the prompt. */
+export function overviewDigestOverBudget(s: ChangeSession, maxChars: number): boolean {
+  const plan = overviewDigestPlan(s, maxChars);
+  return plan.budgets.some((b, i) => b < plan.full[i].length);
+}
+
+/**
+ * Messages for the overview. `relevance` (file path to a 0-4 score) gives more important files a larger share of
+ * the diff budget; without it the budget favours small files.
+ */
+export function overviewMessages(s: ChangeSession, maxChars: number, language: string, relevance?: ReadonlyMap<string, number>): ChatMessage[] {
+  const { aiFiles, list, budget, weights } = overviewDigestInput(s, maxChars, relevance);
+  const digest = buildDiffDigest(aiFiles, budget, weights);
   const system = `${SYSTEM_BASE}
 Write all human-readable text in ${language}.
 Respond with a single JSON object only — no markdown fences, no commentary — matching this schema:
