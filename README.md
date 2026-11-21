@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="media/icon.png" alt="PR This icon: a pull-request branch graph beside an exclamation mark" width="128" height="128">
+</p>
+
 # PR This — AI Change Lens for Visual Studio Code
 
 Understand any commit, branch comparison, or uncommitted working change at a glance. Zoom continuously from a one-line intent down to hunk-level explanations, powered by locally running AI or popular cloud offerings.
