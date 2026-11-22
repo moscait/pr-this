@@ -52,6 +52,10 @@ export function effectiveMaxDiffChars(configured: number, isCustom: boolean, cfg
   return configured;
 }
 
+function commitMessagesSetting(v: string | undefined): 'background' | 'onClick' | 'off' {
+  return v === 'onClick' || v === 'off' ? v : 'background';
+}
+
 export function settings() {
   const c = vscode.workspace.getConfiguration('prThis');
   const maxInspect = c.inspect<number>('maxDiffChars');
@@ -73,6 +77,7 @@ export function settings() {
     ollamaContextLength: c.get<number>('ollamaContextLength', 32768),
     reasoningEffort: effortSetting(c.get<string>('reasoningEffort', 'medium')),
     backgroundPrewarm: prewarmSetting(c.get<string>('backgroundPrewarm', 'local')),
+    commitMessages: commitMessagesSetting(c.get<string>('commitMessages', 'background')),
   };
 }
 

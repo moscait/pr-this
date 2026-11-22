@@ -72,6 +72,36 @@
         "icon": "$(telescope)"
       },
       {
+        "command": "prThis.generateCommitMessage",
+        "title": "Generate Commit Message…",
+        "category": "PR This",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prThis.commitMessage.use",
+        "title": "Use in Commit Box",
+        "category": "PR This",
+        "icon": "$(check)"
+      },
+      {
+        "command": "prThis.commitMessage.copy",
+        "title": "Copy Commit Message",
+        "category": "PR This",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "prThis.commitMessage.generate",
+        "title": "Generate Commit Message",
+        "category": "PR This",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prThis.commitMessage.regenerate",
+        "title": "Regenerate Commit Message",
+        "category": "PR This",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "prThis.reviewCommit",
         "title": "Explain a Commit…",
         "category": "PR This",
@@ -129,6 +159,50 @@
           "command": "prThis.reviewWorkingTree",
           "when": "scmProvider == git",
           "group": "navigation@9"
+        },
+        {
+          "command": "prThis.generateCommitMessage",
+          "when": "scmProvider == git && config.prThis.commitMessages != off",
+          "group": "navigation@10"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "prThis.commitMessage.copy",
+          "when": "view == prThis.changes && viewItem == commitMessage:ready",
+          "group": "inline@1"
+        },
+        {
+          "command": "prThis.commitMessage.regenerate",
+          "when": "view == prThis.changes && viewItem =~ /^commitMessage:(ready|error)$/",
+          "group": "inline@2"
+        },
+        {
+          "command": "prThis.commitMessage.use",
+          "when": "view == prThis.changes && viewItem == commitMessage:ready",
+          "group": "1_use@1"
+        },
+        {
+          "command": "prThis.commitMessage.copy",
+          "when": "view == prThis.changes && viewItem == commitMessage:ready",
+          "group": "1_use@2"
+        },
+        {
+          "command": "prThis.commitMessage.regenerate",
+          "when": "view == prThis.changes && viewItem =~ /^commitMessage:(ready|error)$/",
+          "group": "2_generate@1"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "prThis.generateCommitMessage",
+          "when": "scmProvider == git && (scmResourceGroup == index || scmResourceGroup == workingTree || scmResourceGroup == untracked) && config.prThis.commitMessages != off",
+          "group": "inline@0"
+        },
+        {
+          "command": "prThis.generateCommitMessage",
+          "when": "scmProvider == git && (scmResourceGroup == index || scmResourceGroup == workingTree || scmResourceGroup == untracked) && config.prThis.commitMessages != off",
+          "group": "1_prThis"
         }
       ],
       "timeline/item/context": [
@@ -141,6 +215,26 @@
       "commandPalette": [
         {
           "command": "prThis.reviewTimelineCommit",
+          "when": "false"
+        },
+        {
+          "command": "prThis.generateCommitMessage",
+          "when": "config.prThis.commitMessages != off"
+        },
+        {
+          "command": "prThis.commitMessage.use",
+          "when": "false"
+        },
+        {
+          "command": "prThis.commitMessage.copy",
+          "when": "false"
+        },
+        {
+          "command": "prThis.commitMessage.generate",
+          "when": "false"
+        },
+        {
+          "command": "prThis.commitMessage.regenerate",
           "when": "false"
         }
       ]
@@ -269,6 +363,22 @@
           "type": "number",
           "default": 50,
           "description": "Number of recent commits to list."
+        },
+        "prThis.commitMessages": {
+          "type": "string",
+          "default": "background",
+          "enum": [
+            "background",
+            "onClick",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Write a detailed and a condensed commit message for the uncommitted changes in the background, a few seconds after they last change",
+            "Write each commit message only when you click its row under Uncommitted changes",
+            "Turn commit message suggestions off and hide their rows, buttons and command"
+          ],
+          "markdownDescription": "Commit message suggestions under **Uncommitted changes** in the PR This view: a detailed one (subject and body) and a condensed one (one line), for the staged changes when anything is staged, otherwise all uncommitted changes. Messages are cached by the change itself, so they are only written again when the files change or you click **Regenerate**. In `background` mode your uncommitted changes are sent to the configured AI provider without a click, whenever they change. Can only be set in user settings.",
+          "scope": "machine"
         },
         "prThis.decisionEngine": {
           "type": "string",

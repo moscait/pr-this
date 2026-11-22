@@ -6,6 +6,7 @@ import { RelevanceScorer } from './ai/relevance';
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { StaticAnalysis } from './staticAnalysis';
 import { ChangesView } from './changesView';
+import { CommitMessages, isCommitMessageStyle, pickCommitMessageStyle, type CommitMessageStyle } from './commitMessage';
 import { commitSession, defaultBaseBranch, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
 import { LensPanel } from './panel';
 import type { ChangeSession, CommitInfo } from './shared/types';
@@ -109,13 +110,20 @@ export function activate(ctx: vscode.ExtensionContext): void {
     }, 3000);
   };
 
-  const view = new ChangesView(
+  // The callbacks below refer to `view`, which exists before any of them can run.
+  const analyzer = new Analyzer(vscode.Uri.joinPath(ctx.globalStorageUri, 'cache').fsPath, 2000, 30, () => view.refresh(), relevance);
+  const commitMessages = new CommitMessages(ctx.secrets, analyzer, bg, () => view.refresh());
+  const view: ChangesView = new ChangesView(
     () => currentRoot(false),
     (root, sha) => cachedCommits.has(`${root}:${sha}`),
     onCommitsListed,
+    commitMessages,
   );
-  const analyzer = new Analyzer(vscode.Uri.joinPath(ctx.globalStorageUri, 'cache').fsPath, 2000, 30, () => view.refresh(), relevance);
-  ctx.subscriptions.push(vscode.window.registerTreeDataProvider('prThis.changes', view), { dispose: () => { clearTimeout(headTimer); bg.dispose(); } });
+  ctx.subscriptions.push(
+    vscode.window.registerTreeDataProvider('prThis.changes', view),
+    commitMessages,
+    { dispose: () => { clearTimeout(headTimer); bg.dispose(); } },
+  );
 
   const open = async (build: () => Promise<ChangeSession>, label: string, refresh = false) => {
     try {
@@ -132,6 +140,11 @@ export function activate(ctx: vscode.ExtensionContext): void {
     } catch (e) {
       vscode.window.showErrorMessage(`PR This: ${(e as Error).message}`);
     }
+  };
+
+  const rowTarget = async (arg: unknown): Promise<[string | undefined, CommitMessageStyle | undefined]> => {
+    const style = isCommitMessageStyle(arg) ? arg : (arg as { style?: unknown } | undefined)?.style;
+    return [await needRoot(), isCommitMessageStyle(style) ? style : undefined];
   };
 
   const needRoot = async () => {
@@ -228,12 +241,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
           { label: '$(diff-modified) Uncommitted changes', id: 'w' },
           { label: '$(git-commit) A commit…', id: 'c' },
           { label: '$(git-compare) Branch comparison…', id: 'r' },
+          { label: '$(sparkle) Generate a commit message for uncommitted changes…', id: 'm' },
         ],
         { placeHolder: 'What do you want to understand?' },
       );
       if (pick?.id === 'w') await reviewWorking();
       if (pick?.id === 'c') await reviewCommit();
       if (pick?.id === 'r') await reviewRange();
+      if (pick?.id === 'm') await vscode.commands.executeCommand('prThis.generateCommitMessage');
     }),
     vscode.commands.registerCommand('prThis.reviewWorkingTree', reviewWorking),
     vscode.commands.registerCommand('prThis.reviewCommit', (sha?: string) => reviewCommit(typeof sha === 'string' ? sha : undefined)),
@@ -244,6 +259,38 @@ export function activate(ctx: vscode.ExtensionContext): void {
       if (sha && /^[0-9a-f]{7,40}$/i.test(sha)) await reviewCommit(sha, root);
       else vscode.window.showWarningMessage('PR This: could not determine the commit for this timeline item.');
     }),
+    // From the Source Control title bar the argument is the git SourceControl (rootUri); from a Changes / Staged
+    // Changes header it is the resource group (find the repo from one of its files); from a keybinding it may be a style.
+    vscode.commands.registerCommand('prThis.generateCommitMessage', async (arg?: unknown) => {
+      const a = arg as { rootUri?: vscode.Uri; resourceStates?: { resourceUri?: vscode.Uri }[] } | undefined;
+      const fileUri = a?.resourceStates?.find((r) => r.resourceUri?.scheme === 'file')?.resourceUri;
+      const scmDir = a?.rootUri?.scheme === 'file' ? a.rootUri.fsPath : fileUri ? path.dirname(fileUri.fsPath) : undefined;
+      const root = (scmDir && (await findRepoRoot(scmDir))) || (await needRoot());
+      if (!root) return;
+      const style = isCommitMessageStyle(arg) ? arg : await pickCommitMessageStyle();
+      if (style) await commitMessages.generateAndUse(root, style);
+    }),
+    // Rows under "Uncommitted changes": clicks pass the style, inline actions pass the tree node.
+    vscode.commands.registerCommand('prThis.commitMessage.use', async (arg?: unknown) => {
+      const [root, style] = await rowTarget(arg);
+      if (root && style) await commitMessages.generateAndUse(root, style);
+    }),
+    vscode.commands.registerCommand('prThis.commitMessage.generate', async (arg?: unknown) => {
+      const [root, style] = await rowTarget(arg);
+      if (root && style) await commitMessages.refreshRow(root, style, false);
+    }),
+    vscode.commands.registerCommand('prThis.commitMessage.regenerate', async (arg?: unknown) => {
+      const [root, style] = await rowTarget(arg);
+      if (root && style) await commitMessages.refreshRow(root, style, true);
+    }),
+    vscode.commands.registerCommand('prThis.commitMessage.copy', async (arg?: unknown) => {
+      const [, style] = await rowTarget(arg);
+      const st = style && commitMessages.state(style);
+      if (st && st.status === 'ready') {
+        await vscode.env.clipboard.writeText(st.message);
+        vscode.window.showInformationMessage('PR This: commit message copied to the clipboard.');
+      }
+    }),
     vscode.commands.registerCommand('prThis.configureProvider', async () => {
       if (await configureProvider(ctx.secrets)) LensPanel.broadcastProvider(ctx.secrets);
     }),
@@ -252,10 +299,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
       cachedCommits.clear();
       probedCommits.clear();
       await analyzer.clearCache();
+      commitMessages.reset();
       vscode.window.showInformationMessage('PR This: explanation cache cleared.');
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('prThis')) {
+        commitMessages.reset();
         cachedCommits.clear();
         probedCommits.clear();
         LensPanel.broadcastProvider(ctx.secrets);
