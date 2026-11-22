@@ -44,11 +44,21 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively b
 
 ## Installation
 
+### From the Visual Studio Marketplace (recommended)
+
+Search for **PR This** in the **Extensions** view (`Cmd+Shift+X` / `Ctrl+Shift+X`) and click **Install**, or run:
+
+```bash
+code --install-extension moscait.pr-this
+```
+
 ### Option A: Install Pre-Packaged Extension (`.vsix`)
+
+Download the `.vsix` from the [latest GitHub release](https://github.com/moscait/pr-this/releases/latest).
 
 #### Via VS Code Command Line:
 ```bash
-code --install-extension pr-this-0.1.0.vsix
+code --install-extension pr-this-<version>.vsix
 ```
 
 #### Via VS Code User Interface:
@@ -56,7 +66,7 @@ code --install-extension pr-this-0.1.0.vsix
 2. Go to the **Extensions** view (`Cmd+Shift+X` on macOS or `Ctrl+Shift+X` on Windows/Linux).
 3. Click the **`...`** (Views and More Actions) menu at the top-right corner of the Extensions pane.
 4. Select **Install from VSIX...**.
-5. Choose `pr-this-0.1.0.vsix` and click **Install**.
+5. Choose the downloaded `pr-this-<version>.vsix` and click **Install**.
 
 ---
 

@@ -6,6 +6,7 @@
   "publisher": "moscait",
   "author": "Mosca IT LLC",
   "license": "MIT",
+  "pricing": "Free",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -25,6 +26,10 @@
     "diff"
   ],
   "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#161a33",
+    "theme": "dark"
+  },
   "main": "./dist/extension.js",
   "activationEvents": [],
   "capabilities": {
