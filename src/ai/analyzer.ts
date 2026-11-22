@@ -8,6 +8,9 @@ import { describeImageMeta } from '../core/image';
 import { extractJson } from '../core/json';
 import {
   askMessages,
+  cleanCommitMessage,
+  commitMessageMessages,
+  type CommitMessageStyle,
   FILE_DETAIL_JSON_SCHEMA,
   fileMessages,
   normalizeFileDetail,
@@ -31,6 +34,7 @@ interface Opts {
 export class Analyzer {
   private pruned = false;
   private inFlightOverviews = new Map<string, { promise: Promise<{ overview: Overview; cached: boolean }>; listeners: Set<NonNullable<Opts['onProgress']>> }>();
+  private inFlightCommitMessages = new Map<string, Promise<string>>();
   private inFlightFiles = new Map<string, { promise: Promise<FileDetail>; listeners: Set<NonNullable<Opts['onProgress']>> }>();
 
   private readonly onWrite?: () => void;
@@ -250,6 +254,39 @@ export class Analyzer {
         if (this.inFlightFiles.get(key)?.promise === promise) this.inFlightFiles.delete(key);
       }).catch(() => undefined);
     }
+    return promise;
+  }
+
+  /** Cache key of a commit message: the prompt holds the diff, so unchanged files give the same key. */
+  commitMessageKey(s: ChangeSession, style: CommitMessageStyle, cfg: ProviderConfig, o: Pick<Opts, 'maxChars' | 'language'>): string {
+    return this.key(`commit-${style}`, cfg, o.language, JSON.stringify(commitMessageMessages(s, style, o.maxChars, o.language)));
+  }
+
+  /** A commit message generated earlier for exactly this change, without asking the model. */
+  async cachedCommitMessage(key: string): Promise<string | undefined> {
+    return (await this.read<{ message?: string }>(key))?.message || undefined;
+  }
+
+  /** A commit message for the change, from the cache unless `force`; concurrent requests for the same change share one call. */
+  async commitMessage(s: ChangeSession, style: CommitMessageStyle, cfg: ProviderConfig, o: Omit<Opts, 'onProgress'>): Promise<string> {
+    const key = this.commitMessageKey(s, style, cfg, o);
+    if (!o.force) {
+      const hit = await this.cachedCommitMessage(key);
+      if (hit) return hit;
+      const existing = this.inFlightCommitMessages.get(key);
+      if (existing) return existing;
+    }
+    const promise = (async () => {
+      const text = await chat(cfg, commitMessageMessages(s, style, o.maxChars, o.language), { signal: o.signal });
+      const message = cleanCommitMessage(text, style);
+      if (!message) throw new Error('The AI returned an empty commit message.');
+      await this.write(key, { message });
+      return message;
+    })();
+    this.inFlightCommitMessages.set(key, promise);
+    promise.finally(() => {
+      if (this.inFlightCommitMessages.get(key) === promise) this.inFlightCommitMessages.delete(key);
+    }).catch(() => undefined);
     return promise;
   }
 

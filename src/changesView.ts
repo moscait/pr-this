@@ -2,9 +2,12 @@ import * as vscode from 'vscode';
 import type { CommitInfo } from './shared/types';
 import { countWorkingChanges, listCommits } from './core/git';
 import { settings } from './ai/config';
+import { COMMIT_MESSAGE_STYLES, type CommitMessages, type CommitMessageStyle } from './commitMessage';
 
 type Node =
   | { kind: 'working'; count: number }
+  | { kind: 'commitMessage'; style: CommitMessageStyle }
+  | { kind: 'commitBody'; style: CommitMessageStyle; index: number; text: string }
   | { kind: 'compare' }
   | { kind: 'header'; label: string }
   | { kind: 'commit'; commit: CommitInfo; cached: boolean }
@@ -41,7 +44,12 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
     private readonly getRoot: () => Promise<string | undefined>,
     private readonly isCommitCached?: (root: string, sha: string) => boolean,
     private readonly onCommitsListed?: (root: string, commits: CommitInfo[]) => void,
+    private readonly commitMessages?: CommitMessages,
   ) {}
+
+  private commitMessagesOn(): boolean {
+    return !!this.commitMessages && this.commitMessages.mode() !== 'off';
+  }
 
   refresh(): void {
     clearTimeout(this.timer);
@@ -64,17 +72,43 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
           : [{ kind: 'empty', label: 'No commits yet' } as Node]),
       ];
     }
+    if (el.kind === 'working' && this.commitMessages && this.commitMessagesOn()) {
+      await this.commitMessages.sync(root);
+      return COMMIT_MESSAGE_STYLES.map((style) => ({ kind: 'commitMessage', style }) as Node);
+    }
+    if (el.kind === 'commitMessage' && this.commitMessages) {
+      const st = this.commitMessages.state(el.style);
+      if (st.status !== 'ready') return [];
+      return st.message
+        .split('\n')
+        .slice(1)
+        .map((text, index) => ({ kind: 'commitBody', style: el.style, index, text }) as Node)
+        .filter((n) => n.kind === 'commitBody' && n.text.trim());
+    }
     return [];
   }
 
   getTreeItem(n: Node): vscode.TreeItem {
     switch (n.kind) {
       case 'working': {
-        const t = new vscode.TreeItem('Uncommitted changes');
+        const t = new vscode.TreeItem(
+          'Uncommitted changes',
+          this.commitMessagesOn() ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None,
+        );
+        t.id = 'working'; // stable across refreshes so the expanded state is kept when the file count changes
+        t.contextValue = 'working';
         t.description = `${n.count} file${n.count === 1 ? '' : 's'}`;
         t.iconPath = new vscode.ThemeIcon('diff-modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
         t.command = { command: 'prThis.reviewWorkingTree', title: 'Explain' };
         t.tooltip = 'Explain staged + unstaged + untracked changes';
+        return t;
+      }
+      case 'commitMessage':
+        return this.commitMessageItem(n.style);
+      case 'commitBody': {
+        const t = new vscode.TreeItem(n.text.trim());
+        t.id = `commitBody:${n.style}:${n.index}`;
+        t.tooltip = n.text;
         return t;
       }
       case 'compare': {
@@ -112,5 +146,48 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
         return t;
       }
     }
+  }
+
+  private commitMessageItem(style: CommitMessageStyle): vscode.TreeItem {
+    const name = style === 'detailed' ? 'Detailed commit message' : 'Condensed commit message';
+    const st = this.commitMessages?.state(style) ?? { status: 'idle' as const };
+    const t = new vscode.TreeItem(name);
+    t.id = `commitMessage:${style}`;
+    t.contextValue = `commitMessage:${st.status}`;
+    switch (st.status) {
+      case 'idle': {
+        const background = this.commitMessages?.mode() === 'background';
+        t.description = background ? 'queued' : 'click to generate';
+        t.iconPath = new vscode.ThemeIcon('sparkle');
+        t.command = { command: 'prThis.commitMessage.generate', title: 'Generate', arguments: [style] };
+        t.tooltip = `Write a ${style === 'detailed' ? 'subject line plus a body explaining what changed and why' : 'one-line'} commit message for the staged changes (or all uncommitted changes when nothing is staged)`;
+        break;
+      }
+      case 'pending':
+        t.description = 'writing…';
+        t.iconPath = new vscode.ThemeIcon('loading~spin');
+        break;
+      case 'error':
+        t.description = 'failed · click to retry';
+        t.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
+        t.command = { command: 'prThis.commitMessage.regenerate', title: 'Retry', arguments: [style] };
+        t.tooltip = st.error;
+        break;
+      case 'ready': {
+        const [subject, ...body] = st.message.split('\n');
+        t.label = subject;
+        t.description = style;
+        t.iconPath = new vscode.ThemeIcon('sparkle', new vscode.ThemeColor('charts.green'));
+        if (body.some((l) => l.trim())) t.collapsibleState = vscode.TreeItemCollapsibleState.Collapsed;
+        t.command = { command: 'prThis.commitMessage.use', title: 'Use', arguments: [style] };
+        const md = new vscode.MarkdownString();
+        md.appendMarkdown(`**${name}**\n\n`);
+        md.appendCodeblock(st.message, 'text');
+        md.appendMarkdown('\nClick to put it in the Source Control commit box.');
+        t.tooltip = md;
+        break;
+      }
+    }
+    return t;
   }
 }

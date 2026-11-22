@@ -385,17 +385,28 @@ export async function rangeSession(
   );
 }
 
+/** Whether the index holds changes that differ from HEAD (what `git commit` would record). */
+export async function hasStagedChanges(root: string): Promise<boolean> {
+  const head = (await resolve(root, 'HEAD')) ?? EMPTY_TREE;
+  return (await git(root, ['diff', '--cached', '--name-only', '-z', head])).length > 0;
+}
+
+/**
+ * Uncommitted changes against HEAD. With `staged`, only what is in the index (what `git commit` would record),
+ * leaving out unstaged edits and untracked files.
+ */
 export async function workingSession(
   root: string,
   exclude: string[],
   sendSecretFiles = false,
-  options?: { images?: boolean },
+  options?: { images?: boolean; staged?: boolean },
 ): Promise<ChangeSession> {
   const head = (await resolve(root, 'HEAD')) ?? EMPTY_TREE;
-  let diff = await git(root, diffArgs(head));
+  const staged = options?.staged === true;
+  let diff = await git(root, staged ? diffArgs('--cached', head) : diffArgs(head));
   const notices: string[] = [];
 
-  const allUntracked = (await git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean);
+  const allUntracked = staged ? [] : (await git(root, ['ls-files', '--others', '--exclude-standard', '-z'])).split('\0').filter(Boolean);
   const untracked = allUntracked.slice(0, MAX_UNTRACKED);
   if (allUntracked.length > untracked.length) {
     notices.push(
@@ -428,8 +439,8 @@ export async function workingSession(
     {
       repoRoot: root,
       scope: { kind: 'working' },
-      title: 'Uncommitted changes',
-      subtitle: `Working tree vs ${head === EMPTY_TREE ? 'empty repository' : head.slice(0, 7)}`,
+      title: staged ? 'Staged changes' : 'Uncommitted changes',
+      subtitle: `${staged ? 'Index' : 'Working tree'} vs ${head === EMPTY_TREE ? 'empty repository' : head.slice(0, 7)}`,
       commits: [],
       leftRef: head,
       rightRef: undefined,

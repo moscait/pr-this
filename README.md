@@ -32,6 +32,11 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively b
   - Files that commonly hold secrets (`.env`, private keys, certificates, `.npmrc`, …) are listed but never sent to the AI, whatever `prThis.excludeFromAI` says, unless you turn on `prThis.sendSecretFiles`. Templates such as `.env.example` are sent.
   - Large untracked files (over 512 KB) are listed but not read, and at most 200 untracked files are included; you are told when files are left out.
 - **Interactive Review Q&A**: Ask follow-up questions about the change (`Cmd+K` / `Ctrl+K`).
+- **Commit Message Suggestions**: Under **Uncommitted changes** in the PR This view, a **condensed** message (one line) and a **detailed** one (subject plus a body explaining what changed and why) are written in the background, so you can compare them. Expand the detailed one to read its body; click either to put it in the Source Control commit box; hover for **Copy** and **Regenerate**.
+  - They describe your staged changes when anything is staged (what `git commit` will record), otherwise all uncommitted changes.
+  - They are cached by the change itself, so they are only written again when the files change, the provider or model changes, or you click **Regenerate**.
+  - `prThis.commitMessages`: `background` (default), `onClick` (write each only when you click it), or `off` (hide the rows and buttons). In `background` mode your uncommitted changes go to the configured provider without a click whenever they change.
+  - Also available from the sparkle button in the Source Control view and **PR This: Generate Commit Message…** in the command palette, which use the same cached messages.
 - **Markdown Export**: Copy formatted change summaries ready to paste directly into GitHub / GitLab PR descriptions.
 - **Theme-Native GUI**: Built with React, Vite, Framer Motion, and VS Code CSS design tokens.
 
@@ -39,11 +44,21 @@ Inspired by [PR Lens](https://github.com/coldteadotai/pr-lens), built natively b
 
 ## Installation
 
+### From the Visual Studio Marketplace (recommended)
+
+Search for **PR This** in the **Extensions** view (`Cmd+Shift+X` / `Ctrl+Shift+X`) and click **Install**, or run:
+
+```bash
+code --install-extension moscait.pr-this
+```
+
 ### Option A: Install Pre-Packaged Extension (`.vsix`)
+
+Download the `.vsix` from the [latest GitHub release](https://github.com/moscait/pr-this/releases/latest).
 
 #### Via VS Code Command Line:
 ```bash
-code --install-extension pr-this-0.1.0.vsix
+code --install-extension pr-this-<version>.vsix
 ```
 
 #### Via VS Code User Interface:
@@ -51,7 +66,7 @@ code --install-extension pr-this-0.1.0.vsix
 2. Go to the **Extensions** view (`Cmd+Shift+X` on macOS or `Ctrl+Shift+X` on Windows/Linux).
 3. Click the **`...`** (Views and More Actions) menu at the top-right corner of the Extensions pane.
 4. Select **Install from VSIX...**.
-5. Choose `pr-this-0.1.0.vsix` and click **Install**.
+5. Choose the downloaded `pr-this-<version>.vsix` and click **Install**.
 
 ---
 
@@ -205,6 +220,7 @@ PR This shows the problems your installed language extensions and linters report
 | `prThis.sendSecretFiles` | `false` | User (`machine`) | Send diffs of secret-like files (`.env`, private keys, credentials, …) to the AI. Can only be set in user settings. |
 | `prThis.explanationLanguage` | `"English"` | Workspace | Language the AI should write explanations in. |
 | `prThis.commitCount` | `50` | Workspace | Number of recent commits to list in the sidebar. |
+| `prThis.commitMessages` | `"background"` | User (`machine`) | Commit message suggestions under Uncommitted changes: `background`, `onClick`, or `off`. |
 | `prThis.backgroundPrewarm` | `"local"` | User (`machine`) | Pre-compute explanations in the background while idle: `local` only for providers that keep code on this machine, `always` for every provider (this spends cloud API calls on changes you may never open), or `off`. Can only be set in user settings. |
 | `prThis.staticAnalysis` | `"openFiles"` | Workspace | Show problems language extensions report on changed lines: `openFiles` opens changed files in the background so they get analysed, `reportedOnly` uses only what is already reported (usually just files open in an editor), `off` turns it off. |
 

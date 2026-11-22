@@ -1,4 +1,4 @@
-# Only dist/ (extension + webview bundle), media/, README, LICENSE and package.json ship.
+# Only dist/ (extension + webview bundle), media/, README, CHANGELOG, SECURITY, LICENSE and package.json ship.
 .vscode/**
 .github/**
 src/**
@@ -11,3 +11,6 @@ esbuild.mjs
 eslint.config.mjs
 tsconfig.json
 .gitignore
+RELEASING.md
+*.vsix
+.claude/**
