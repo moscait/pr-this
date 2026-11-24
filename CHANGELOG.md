@@ -4,6 +4,11 @@ All notable changes to PR This are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- **Extension API.** Other extensions can open the Change Lens on a repository outside the workspace, such as a blobless clone of an Azure DevOps or GitHub repository, with `reviewRange(repoPath, base, head, { context })`. Optional `context` (for example linked work item titles) helps the AI explain why a change exists. See [Extension API](README.md#extension-api).
+- Files in those repositories open in diffs and editors from the panel even though VS Code's git extension does not have the repository open.
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

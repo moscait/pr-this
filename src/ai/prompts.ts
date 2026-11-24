@@ -54,6 +54,9 @@ function describeScope(s: ChangeSession): string {
     if (s.commits.length > 40) commitLines.push(`- … ${s.commits.length - 40} more commits`);
     lines.push('', untrusted('commits', commitLines.join('\n')));
   }
+  if (s.context) {
+    lines.push('', 'Background supplied with the change (for example linked work items):', untrusted('context', redactSecrets(s.context).text));
+  }
   return lines.join('\n');
 }
 

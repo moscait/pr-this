@@ -102,6 +102,8 @@ export interface ChangeSession {
   subtitle: string;
   commits: CommitInfo[];
   files: DiffFile[];
+  /** Background on the change from another extension (e.g. linked work items), given to the AI as untrusted data. */
+  context?: string;
   /** Things the user should know about how the session was built (e.g. files left out). */
   notices?: string[];
   additions: number;

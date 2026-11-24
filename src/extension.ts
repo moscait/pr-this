@@ -7,8 +7,10 @@ import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { StaticAnalysis } from './staticAnalysis';
 import { ChangesView } from './changesView';
 import { CommitMessages, isCommitMessageStyle, pickCommitMessageStyle, type CommitMessageStyle } from './commitMessage';
-import { commitSession, defaultBaseBranch, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
+import { cleanContext, type PrThisApi } from './api';
+import { commitSession, defaultBaseBranch, exactRepoRoot, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
 import { LensPanel } from './panel';
+import { allowExternalRoot, RefContentProvider, REF_SCHEME } from './refContent';
 import type { ChangeSession, CommitInfo } from './shared/types';
 
 let lastRoot: string | undefined;
@@ -35,7 +37,7 @@ async function currentRoot(interactive: boolean): Promise<string | undefined> {
   return (lastRoot = pick?.r);
 }
 
-export function activate(ctx: vscode.ExtensionContext): void {
+export function activate(ctx: vscode.ExtensionContext): PrThisApi {
   const bg = new BackgroundQueue();
   const analysis = new StaticAnalysis();
   ctx.subscriptions.push(analysis);
@@ -318,12 +320,31 @@ export function activate(ctx: vscode.ExtensionContext): void {
     }),
   );
 
+  ctx.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(REF_SCHEME, new RefContentProvider()));
+
   // Refresh the tree when git state changes.
   const watcher = vscode.workspace.createFileSystemWatcher('**/.git/{HEAD,index,refs/heads/**}');
   watcher.onDidChange(() => view.refresh());
   watcher.onDidCreate(() => view.refresh());
   watcher.onDidDelete(() => view.refresh());
   ctx.subscriptions.push(watcher, vscode.workspace.onDidSaveTextDocument(() => view.refresh()));
+
+  return {
+    version: 1,
+    async reviewRange(repoPath, base, head, options) {
+      if (typeof repoPath !== 'string' || typeof base !== 'string' || typeof head !== 'string' || !base.trim() || !head.trim()) {
+        throw new TypeError('PR This: reviewRange(repoPath, base, head) takes three non-empty strings.');
+      }
+      const root = await exactRepoRoot(repoPath);
+      if (!root) throw new Error(`PR This: ${repoPath} is not the top folder of a git repository.`);
+      if (!vscode.workspace.getWorkspaceFolder(vscode.Uri.file(root))) allowExternalRoot(root);
+      const context = cleanContext(options?.context);
+      await open(async () => {
+        const session = await rangeSession(root, base.trim(), head.trim(), settings().exclude, settings().sendSecretFiles);
+        return context ? { ...session, context } : session;
+      }, 'Comparing…');
+    },
+  };
 }
 
 export function deactivate(): void {
