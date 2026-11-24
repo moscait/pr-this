@@ -451,7 +451,7 @@
     "package": "vsce package"
   },
   "devDependencies": {
-    "@emnapi/core": "^2.0.0-beta.2",
+    "@emnapi/core": "^2.0.0-beta.3",
     "@emnapi/runtime": "^2.0.0-beta.2",
     "@eslint/js": "^10.0.1",
     "@types/node": "^20.19.43",
