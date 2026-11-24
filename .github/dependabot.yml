@@ -5,16 +5,26 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Wait a week after a release before proposing it, so a compromised version is more likely to be
+    # caught and pulled before it can be auto-merged.
+    cooldown:
+      default-days: 7
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     # @types/vscode must track engines.vscode (^1.90.0) so vsce package does not fail.
     # @types/node must track the Node runtime bundled in VS Code (Node 20 for VS Code 1.90).
     ignore:
       - dependency-name: "@types/vscode"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript only up to 6.0 (as of 8.74), so a TypeScript major breaks npm ci.
+      # Remove this once typescript-eslint supports the new major.
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     groups:
       minor-and-patch:
