@@ -226,10 +226,32 @@ PR This shows the problems your installed language extensions and linters report
 
 ---
 
+## Extension API
+
+Other extensions can open the Change Lens on a repository that is not in the workspace, such as a clone of an Azure DevOps or GitHub repository. PR This returns this API from `activate()`:
+
+```ts
+interface PrThisApi {
+  readonly version: 1;
+  reviewRange(repoPath: string, base: string, head: string, options?: { context?: string }): Promise<void>;
+}
+
+const api = vscode.extensions.getExtension<PrThisApi>('moscait.pr-this')?.exports;
+if (api?.version === 1) await api.reviewRange(clonePath, lastSeenSha, 'origin/main', { context: 'AB#1234 Raise the upload limit' });
+```
+
+- Declare `"extensionDependencies": ["moscait.pr-this"]` so PR This is active before you call it. The full contract, with comments, is in [`src/api.ts`](src/api.ts); copy the types into your extension.
+- `repoPath` must be the absolute top folder of a non-bare git repository. It does not need a checkout: `git clone --filter=blob:none --no-checkout` is enough, and git downloads only the file contents the diff needs.
+- The review works like **Branch comparison…**: it shows the changes from the merge base of `base` and `head` up to `head`. It uses the user's configured provider, exclusions and secret-file rules, which a caller cannot change.
+- `context` is optional background on the change, such as linked work item titles, for the AI to use when it explains why the change exists. It is treated as untrusted data, credential-shaped strings are redacted, and at most 4,000 characters are used.
+
+---
+
 ## Privacy & Data
 
 - **What is sent to your configured AI provider**:
   - The repository name, change scope, commit metadata (short SHA and commit message), the list of changed file paths and line counts, and the unified diff (bounded by `prThis.maxDiffChars`).
+  - When another extension opens a review through the [Extension API](#extension-api), the same is sent for that repository, which may not be in your workspace, along with any background text the extension supplies.
   - Binary files, files matching `prThis.excludeFromAI`, and files matching built-in secret path patterns (`.env*`, private keys, certificates, `.npmrc`, `.netrc`, `.aws/credentials`, `.kube/config`, `*.tfvars`, `*.tfstate`, `secrets.*`, `service-account*.json`, …) are **never sent** unless `prThis.sendSecretFiles` is explicitly enabled in user settings.
   - Credential-shaped strings (AWS access keys, OpenAI/Anthropic/GitHub/Slack/Google API tokens, JWTs, and PEM private key blocks) in added or context lines are automatically replaced with `[REDACTED]` before prompts are built unless `prThis.sendSecretFiles` is enabled.
 - **Local explanation cache**:

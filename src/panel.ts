@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { isExternalRoot, refUri } from './refContent';
 import type { ChangeSession, DiffFile, HostMessage, Overview } from './shared/types';
 import { parseWebviewMessage } from './shared/protocol';
 import { Analyzer } from './ai/analyzer';
@@ -345,6 +346,7 @@ export class LensPanel {
   // --- editor integration -------------------------------------------------
 
   private gitUri(rel: string, ref: string): vscode.Uri {
+    if (isExternalRoot(this.session.repoRoot)) return refUri(this.session.repoRoot, rel, ref);
     const abs = path.join(this.session.repoRoot, rel);
     return vscode.Uri.file(abs).with({ scheme: 'git', query: JSON.stringify({ path: abs, ref }) });
   }

@@ -155,6 +155,27 @@ export async function findRepoRoot(dir: string): Promise<string | undefined> {
   }
 }
 
+/**
+ * The repository whose top folder is `dir`, or undefined when `dir` is not absolute, is not in a
+ * repository, or is a folder inside one. Symlinks are resolved, so the result is the real path.
+ */
+export async function exactRepoRoot(dir: string): Promise<string | undefined> {
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return undefined;
+  try {
+    const real = await fs.realpath(dir);
+    const top = await findRepoRoot(real);
+    return top && (await fs.realpath(top)) === real ? real : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The content of `relPath` in commit `sha` (a full SHA), as text. */
+export async function fileAtCommit(root: string, sha: string, relPath: string): Promise<string> {
+  if (!/^[0-9a-f]{40}$/i.test(sha)) throw new Error(`Not a commit SHA: ${sha}`);
+  return git(root, ['cat-file', 'blob', `${sha}:${relPath}`]);
+}
+
 const LOG_FORMAT = '--format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e';
 
 function parseLog(out: string): CommitInfo[] {
@@ -280,7 +301,7 @@ async function finish(
  * can change at any time.
  */
 export function sameChange(a: ChangeSession, b: ChangeSession): boolean {
-  return a.scope.kind !== 'working' && a.leftRef === b.leftRef && a.rightRef === b.rightRef;
+  return a.scope.kind !== 'working' && a.leftRef === b.leftRef && a.rightRef === b.rightRef && a.context === b.context;
 }
 
 /**
