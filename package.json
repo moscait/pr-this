@@ -1,11 +1,19 @@
 {
   "name": "pr-this",
   "displayName": "PR This — AI Change Lens",
-  "description": "Understand any commit, branch comparison, or working change at a glance. Zoom from a one-line intent down to line-level explanations, powered by local or cloud AI.",
+  "description": "Understand any commit, branch comparison, or working change at a glance. Zoom from a one-line intent down to line-level explanations, powered by local or cloud AI. How-to video: https://youtu.be/p0EruS_rgww",
   "version": "0.4.1",
   "publisher": "moscait",
   "author": "Mosca IT LLC",
   "license": "MIT",
+  "homepage": "https://github.com/moscait/pr-this#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/moscait/pr-this.git"
+  },
+  "bugs": {
+    "url": "https://github.com/moscait/pr-this/issues"
+  },
   "pricing": "Free",
   "engines": {
     "vscode": "^1.90.0"
