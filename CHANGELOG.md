@@ -4,6 +4,12 @@ All notable changes to PR This are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-24
+
+### Changed
+
+- The Marketplace page links to a [how-to video](https://youtu.be/p0EruS_rgww) in the description and the overview, and to the repository and issue tracker in the sidebar.
+
 ## [0.4.0] - 2026-11-24
 
 ### Added
@@ -50,7 +56,8 @@ All notable changes to PR This are listed here. The format follows [Keep a Chang
 
 - First release: explain uncommitted changes, a commit, or a branch comparison at four zoom levels (intent, architecture, files, lines), with review Q&A and Markdown export, using Ollama, LM Studio, OpenAI-compatible servers, OpenAI, Anthropic, or Gemini.
 
-[Unreleased]: https://github.com/moscait/pr-this/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/moscait/pr-this/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/moscait/pr-this/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/moscait/pr-this/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/moscait/pr-this/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/moscait/pr-this/compare/v0.2.0...v0.2.1
