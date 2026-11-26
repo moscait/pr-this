@@ -6,6 +6,7 @@ import { DiffBar, FileName, StatusBadge } from './common';
 import { Icon } from './Icons';
 import { inline } from './Markdown';
 import { DiagnosticPills, shownDiagnostics } from './Diagnostics';
+import { MetricsBadge } from './Metrics';
 
 type GroupBy = 'component' | 'folder' | 'none';
 
@@ -106,6 +107,7 @@ export function FilesLevel({ state, dispatch }: { state: State; dispatch: Dispat
                   <div className="file-card-foot">
                     <DiffBar add={f.additions} del={f.deletions} />
                     <DiagnosticPills diagnostics={shownDiagnostics(f)} />
+                    <MetricsBadge file={f} />
                     <span className="hunks muted small">
                       {f.hunks.length} hunk{f.hunks.length === 1 ? '' : 's'}
                     </span>

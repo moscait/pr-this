@@ -72,10 +72,55 @@ export interface DiffFile {
   /** Static code analysis diagnostics detected on modified lines in this file. */
   diagnostics?: DiffDiagnostic[];
   diagnosticsStatus?: DiagnosticsStatus;
+  /** Code metrics for the file before and after the change; only for languages the user turned metrics on for. */
+  metrics?: FileMetricsResult;
+  metricsStatus?: MetricsStatus;
+  /** Why metrics are unavailable, shown to the user. */
+  metricsNote?: string;
   /** Listed in the UI but not sent to the AI (lock files, generated code, secrets, …). */
   excluded?: boolean;
   /** Why the file is not sent to the AI, shown to the user and in the prompt. */
   excludedReason?: string;
+}
+
+/** Languages code metrics can be turned on for (setting `prThis.metrics.languages`). */
+export type MetricsLanguage = 'java' | 'javascript' | 'typescript' | 'csharp';
+
+/** `pending`: being measured (the parser may be downloading); `unavailable`: see `metricsNote`. */
+export type MetricsStatus = 'pending' | 'ready' | 'unavailable';
+
+export interface FunctionMetrics {
+  /** Qualified where the language has classes, e.g. `Invoice.total` or `Invoice.Total.get`. */
+  name: string;
+  /** 1-based first line. */
+  line: number;
+  /** Lines the function spans. */
+  lines: number;
+  /** McCabe cyclomatic complexity: 1 + decision points (branches, loops, cases, catches, ?:, &&, ||, ??). */
+  complexity: number;
+  /** Deepest nesting of control structures inside the function. */
+  nesting: number;
+  params: number;
+}
+
+export interface FileMetrics {
+  lines: number;
+  /** Lines with code (not blank, not only comments). */
+  code: number;
+  /** Lines with a comment. */
+  comments: number;
+  functions: FunctionMetrics[];
+  /** Sum of all function complexities plus decisions outside functions. */
+  complexity: number;
+  /** True when the parser found syntax errors, so numbers may be off. */
+  syntaxErrors: boolean;
+}
+
+/** Metrics for both sides of a change; a side is missing when the file did not exist there. */
+export interface FileMetricsResult {
+  language: MetricsLanguage;
+  before?: FileMetrics;
+  after?: FileMetrics;
 }
 
 export type ChangeScope =
@@ -197,6 +242,7 @@ export type HostMessage =
   | { type: 'file:error'; path: string; message: string }
   | { type: 'file:image'; path: string; image: ImageDiff }
   | { type: 'file:diagnostics'; path: string; diagnostics: DiffDiagnostic[]; status?: DiagnosticsStatus }
+  | { type: 'file:metrics'; path: string; metrics?: FileMetricsResult; status: MetricsStatus; note?: string }
   | { type: 'ask:chunk'; id: string; text: string }
   | { type: 'ask:done'; id: string }
   | { type: 'ask:error'; id: string; message: string };

@@ -12,6 +12,8 @@ import { ProviderError } from './ai/providers';
 import { EMPTY_TREE, readImageRef, sameChange } from './core/git';
 import { buildImageSide } from './core/image';
 import type { StaticAnalysis } from './staticAnalysis';
+import type { SessionMetrics } from './metrics/session';
+import { enabledMetricsLanguages } from './codeMetrics';
 
 /** A webview panel showing one change session at all zoom levels. */
 export class LensPanel {
@@ -24,12 +26,14 @@ export class LensPanel {
   private fileCtl = new Map<string, AbortController>();
   private askCtl = new Map<string, AbortController>();
   private disposables: vscode.Disposable[] = [];
+  private metricsCtl?: AbortController;
 
   static show(
     ctx: vscode.ExtensionContext,
     analyzer: Analyzer,
     bg: BackgroundQueue,
     analysis: StaticAnalysis,
+    metrics: SessionMetrics,
     session: ChangeSession,
     refresh = false,
     onOverviewCached?: (session: ChangeSession) => void,
@@ -46,7 +50,12 @@ export class LensPanel {
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(ctx.extensionUri, 'dist', 'webview'), vscode.Uri.joinPath(ctx.extensionUri, 'media')],
     });
-    LensPanel.panels.set(session.id, new LensPanel(ctx, analyzer, bg, analysis, panel, session, onOverviewCached));
+    LensPanel.panels.set(session.id, new LensPanel(ctx, analyzer, bg, analysis, metrics, panel, session, onOverviewCached));
+  }
+
+  /** Measure open sessions again, e.g. after the user turned metrics on or off for a language. */
+  static remeasure(): void {
+    for (const p of LensPanel.panels.values()) void p.prepareMetrics();
   }
 
   static broadcastProvider(secrets: vscode.SecretStorage): void {
@@ -64,6 +73,7 @@ export class LensPanel {
     private readonly analyzer: Analyzer,
     private readonly bg: BackgroundQueue,
     private readonly analysis: StaticAnalysis,
+    private readonly metrics: SessionMetrics,
     private readonly panel: vscode.WebviewPanel,
     private session: ChangeSession,
     private onOverviewCached?: (session: ChangeSession) => void,
@@ -72,6 +82,7 @@ export class LensPanel {
     panel.onDidDispose(() => this.dispose(), null, this.disposables);
     panel.webview.onDidReceiveMessage((raw: unknown) => this.onMessage(raw), null, this.disposables);
     void this.prepareDiagnostics();
+    void this.prepareMetrics();
     vscode.languages.onDidChangeDiagnostics(
       (e) => {
         if (this.disposed) return;
@@ -118,6 +129,30 @@ export class LensPanel {
     }
   }
 
+  private postMetrics(f: DiffFile): void {
+    if (this.session.files.includes(f)) {
+      this.post({ type: 'file:metrics', path: f.path, metrics: f.metrics, status: f.metricsStatus ?? 'unavailable', note: f.metricsNote });
+    }
+  }
+
+  /** Measure code metrics for both sides of every file in a language the user turned metrics on for. */
+  private async prepareMetrics(): Promise<void> {
+    this.metricsCtl?.abort();
+    const ctl = (this.metricsCtl = new AbortController());
+    const session = this.session;
+    try {
+      await this.metrics.measure(session, {
+        enabled: enabledMetricsLanguages(),
+        signal: ctl.signal,
+        onChange: (f) => {
+          if (!ctl.signal.aborted && this.session === session) this.postMetrics(f);
+        },
+      });
+    } catch {
+      /* metrics are best-effort */
+    }
+  }
+
   private post(m: HostMessage): void {
     if (this.disposed) return;
     try {
@@ -135,6 +170,7 @@ export class LensPanel {
     this.askCtl.clear();
     this.session = s;
     void this.prepareDiagnostics();
+    void this.prepareMetrics();
     this.overview = undefined;
     this.post({ type: 'session', session: s });
     void this.runOverview(false);
@@ -420,6 +456,7 @@ export class LensPanel {
     this.bg.cancelPrefix(`file:${this.session.id}:`);
     LensPanel.panels.delete(this.session.id);
     this.overviewCtl?.abort();
+    this.metricsCtl?.abort();
     for (const c of this.fileCtl.values()) c.abort();
     for (const c of this.askCtl.values()) c.abort();
     this.disposables.forEach((d) => d.dispose());

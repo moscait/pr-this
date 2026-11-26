@@ -4,6 +4,10 @@ All notable changes to PR This are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in code metrics for Java, JavaScript, TypeScript and C#: per-function cyclomatic complexity, nesting depth, parameter count and length, plus line counts, before and after each change. They appear in a *Code metrics* card at the Intent level, as a complexity pill on each file card, and as a table of changed functions at the Lines level. Turn languages on with `prThis.metrics.languages` (user settings only). Each language's parser is downloaded once on first use and checked against a pinned checksum. Results are cached by file content, so each version of a file is measured only once.
+
 ## [0.5.0] - 2026-11-26
 
 ### Added
