@@ -189,10 +189,41 @@ function parseLog(out: string): CommitInfo[] {
     });
 }
 
-export async function listCommits(root: string, count: number, range?: string): Promise<CommitInfo[]> {
+/** Narrows a commit listing. Both fields are plain, case-insensitive substrings; set fields must all match. */
+export interface CommitFilter {
+  /** Text the commit message (subject or body) contains. */
+  message?: string;
+  /** Text a changed file's path contains, e.g. `README`, `src/ai`, `.tsx`. */
+  path?: string;
+}
+
+/** Escape glob metacharacters so user text is matched literally inside a `:(glob)` pathspec. */
+const escapeGlob = (s: string) => s.replace(/[\\*?[\]]/g, '\\$&');
+
+/** git log arguments for `filter`; the pathspecs, if any, come last after `--`. */
+export function commitFilterArgs(filter?: CommitFilter): string[] {
+  const args: string[] = [];
+  const message = filter?.message?.trim();
+  const p = filter?.path?.trim().replace(/^\/+|\/+$/g, '');
+  if (message) args.push('--regexp-ignore-case', '--fixed-strings', `--grep=${message}`);
+  if (p) {
+    const g = escapeGlob(p);
+    // The first pathspec matches a file whose path contains the text; the second, everything under a
+    // directory whose path does.
+    args.push('--', `:(glob,icase)**/*${g}*`, `:(glob,icase)**/*${g}*/**`);
+  }
+  return args;
+}
+
+export function hasCommitFilter(filter?: CommitFilter): boolean {
+  return !!(filter?.message?.trim() || filter?.path?.trim().replace(/^\/+|\/+$/g, ''));
+}
+
+export async function listCommits(root: string, count: number, range?: string, filter?: CommitFilter): Promise<CommitInfo[]> {
   try {
     const args = ['log', LOG_FORMAT, `-n${count}`];
     if (range) args.push(range);
+    args.push(...commitFilterArgs(filter));
     return parseLog(await git(root, args));
   } catch {
     return []; // no commits yet

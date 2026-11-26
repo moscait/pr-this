@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { commitSession, gitBuffer, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession, workingTreeMatchesRef } from '../core/git';
+import { commitFilterArgs, commitSession, gitBuffer, hasCommitFilter, listCommits, MAX_UNTRACKED, MAX_UNTRACKED_BYTES, rangeSession, workingSession, workingTreeMatchesRef } from '../core/git';
 import { fileTable, overviewMessages } from '../ai/prompts';
 import type { ChangeSession, DiffFile } from '../shared/types';
 
@@ -180,4 +180,44 @@ test('workingTreeMatchesRef finds files unchanged on disk since a commit', async
   const paths = ['same.ts', 'edited.ts', 'gone.ts', 'glob[1].ts', '*.ts', 'never-committed.ts'];
   const same = await workingTreeMatchesRef(r.dir, sha, paths);
   assert.deepEqual([...same].sort(), ['*.ts', 'glob[1].ts', 'same.ts'], 'pathspec characters are taken literally');
+});
+
+test('listCommits: filters by message and by file name or directory, case-insensitively and literally', async () => {
+  const { dir, git, write } = repo('filter');
+  const commit = (msg: string, files: string[]) => {
+    for (const f of files) write(f, msg + '\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', msg);
+  };
+  commit('Initial setup', ['README.md']);
+  commit('fix: login redirect', ['src/auth/Login.tsx']);
+  commit('feat: add billing', ['src/billing/invoice.ts']);
+  commit('fix: invoice rounding (a*b)', ['src/billing/invoice.ts', 'docs/notes.md']);
+  commit('docs: mention [beta] flag', ['docs/[beta].md']);
+
+  const subjects = async (filter: Parameters<typeof listCommits>[3]) =>
+    (await listCommits(dir, 50, undefined, filter)).map((c) => c.subject);
+
+  assert.equal((await subjects(undefined)).length, 5);
+  assert.deepEqual(await subjects({ message: 'FIX' }), ['fix: invoice rounding (a*b)', 'fix: login redirect']);
+  assert.deepEqual(await subjects({ path: 'login' }), ['fix: login redirect']);
+  assert.deepEqual(await subjects({ path: 'src/billing' }), ['fix: invoice rounding (a*b)', 'feat: add billing']);
+  assert.deepEqual(await subjects({ path: '/src/billing/' }), ['fix: invoice rounding (a*b)', 'feat: add billing']);
+  assert.deepEqual(await subjects({ message: 'fix', path: 'invoice' }), ['fix: invoice rounding (a*b)']);
+  // Regex and glob characters are matched literally.
+  assert.deepEqual(await subjects({ message: '(a*b)' }), ['fix: invoice rounding (a*b)']);
+  assert.deepEqual(await subjects({ path: '[beta]' }), ['docs: mention [beta] flag']);
+  assert.deepEqual(await subjects({ path: '*' }), []);
+  assert.deepEqual(await subjects({ message: 'nothing like this' }), []);
+  // Whitespace-only fields are ignored.
+  assert.equal((await subjects({ message: '  ', path: ' ' })).length, 5);
+});
+
+test('commitFilterArgs: user text cannot become a git option', () => {
+  assert.deepEqual(commitFilterArgs({}), []);
+  assert.equal(hasCommitFilter({ message: ' ', path: '/' }), false);
+  const args = commitFilterArgs({ message: '--output=/tmp/x', path: '--all' });
+  assert.ok(args.includes('--grep=--output=/tmp/x'));
+  const sep = args.indexOf('--');
+  assert.ok(sep > 0 && args.slice(sep + 1).every((a) => a.startsWith(':(glob,icase)')));
 });

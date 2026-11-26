@@ -4,6 +4,10 @@ All notable changes to PR This are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Filter the commit list in the Changes view by commit message text, by file name or path, or both. The filter searches the whole history, not just the commits already listed. Use the filter button in the view's title bar, or right-click a file or folder in the Explorer (or an editor tab) and choose **Show Commits Touching This Path**.
+
 ## [0.4.1] - 2026-11-24
 
 ### Changed

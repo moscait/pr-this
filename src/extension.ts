@@ -5,10 +5,10 @@ import { configureProvider, decisionEngineConfig, prewarmContext, runContext, se
 import { RelevanceScorer } from './ai/relevance';
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { StaticAnalysis } from './staticAnalysis';
-import { ChangesView } from './changesView';
+import { ChangesView, describeFilter } from './changesView';
 import { CommitMessages, isCommitMessageStyle, pickCommitMessageStyle, type CommitMessageStyle } from './commitMessage';
 import { cleanContext, type PrThisApi } from './api';
-import { commitSession, defaultBaseBranch, exactRepoRoot, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
+import { commitSession, type CommitFilter, defaultBaseBranch, exactRepoRoot, findRepoRoot, listCommits, listRefs, rangeSession, workingSession } from './core/git';
 import { LensPanel } from './panel';
 import { allowExternalRoot, RefContentProvider, REF_SCHEME } from './refContent';
 import type { ChangeSession, CommitInfo } from './shared/types';
@@ -121,11 +121,41 @@ export function activate(ctx: vscode.ExtensionContext): PrThisApi {
     onCommitsListed,
     commitMessages,
   );
+  const treeView = vscode.window.createTreeView('prThis.changes', { treeDataProvider: view });
   ctx.subscriptions.push(
-    vscode.window.registerTreeDataProvider('prThis.changes', view),
+    treeView,
     commitMessages,
     { dispose: () => { clearTimeout(headTimer); bg.dispose(); } },
   );
+
+  const applyCommitFilter = async (filter: CommitFilter) => {
+    view.setFilter(filter);
+    treeView.description = view.filtered ? describeFilter(view.filter) : undefined;
+    await vscode.commands.executeCommand('setContext', 'prThis.commitsFiltered', view.filtered);
+  };
+
+  /** Let the user set or change what the commit list is filtered by: message text and/or a file path. */
+  const editCommitFilter = async () => {
+    const current = view.filter;
+    type Item = vscode.QuickPickItem & { field?: keyof CommitFilter; clear?: boolean };
+    const items: Item[] = [
+      { label: '$(comment) Commit message contains…', description: current.message ?? '', field: 'message' },
+      { label: '$(file) File name or path contains…', description: current.path ?? '', field: 'path' },
+    ];
+    if (view.filtered) items.push({ label: '$(clear-all) Clear filter', clear: true });
+    const pick = await vscode.window.showQuickPick(items, { title: 'Filter commits', placeHolder: 'Search the whole history by…' });
+    if (!pick) return;
+    if (pick.clear) return applyCommitFilter({});
+    const field = pick.field!;
+    const value = await vscode.window.showInputBox({
+      title: field === 'message' ? 'Commit message contains' : 'File name or path contains',
+      prompt: `Case-insensitive, matched literally. Leave empty to stop filtering by ${field === 'message' ? 'message' : 'file'}.`,
+      placeHolder: field === 'message' ? 'e.g. fix login, JIRA-123' : 'e.g. README, src/ai, .tsx',
+      value: current[field] ?? '',
+    });
+    if (value === undefined) return;
+    await applyCommitFilter({ ...current, [field]: value });
+  };
 
   const open = async (build: () => Promise<ChangeSession>, label: string, refresh = false) => {
     try {
@@ -297,6 +327,20 @@ export function activate(ctx: vscode.ExtensionContext): PrThisApi {
       if (await configureProvider(ctx.secrets)) LensPanel.broadcastProvider(ctx.secrets);
     }),
     vscode.commands.registerCommand('prThis.refreshCommits', () => view.refresh()),
+    vscode.commands.registerCommand('prThis.filterCommits', () => editCommitFilter()),
+    vscode.commands.registerCommand('prThis.clearCommitFilter', () => applyCommitFilter({})),
+    vscode.commands.registerCommand('prThis.filterCommitsByFile', async (uri?: vscode.Uri) => {
+      uri ??= vscode.window.activeTextEditor?.document.uri;
+      if (uri?.scheme !== 'file') return;
+      const root = await findRepoRoot(path.dirname(uri.fsPath));
+      if (!root) {
+        vscode.window.showWarningMessage('PR This: that file is not inside a git repository.');
+        return;
+      }
+      const rel = path.relative(root, uri.fsPath).split(path.sep).join('/');
+      await applyCommitFilter({ ...view.filter, path: rel });
+      await vscode.commands.executeCommand('prThis.changes.focus');
+    }),
     vscode.commands.registerCommand('prThis.clearCache', async () => {
       cachedCommits.clear();
       probedCommits.clear();

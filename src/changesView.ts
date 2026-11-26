@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import type { CommitInfo } from './shared/types';
-import { countWorkingChanges, listCommits } from './core/git';
+import { countWorkingChanges, hasCommitFilter, listCommits, type CommitFilter } from './core/git';
 import { settings } from './ai/config';
 import { COMMIT_MESSAGE_STYLES, type CommitMessages, type CommitMessageStyle } from './commitMessage';
 
@@ -10,6 +10,7 @@ type Node =
   | { kind: 'commitBody'; style: CommitMessageStyle; index: number; text: string }
   | { kind: 'compare' }
   | { kind: 'header'; label: string }
+  | { kind: 'filter'; filter: CommitFilter }
   | { kind: 'commit'; commit: CommitInfo; cached: boolean }
   | { kind: 'empty'; label: string };
 
@@ -35,10 +36,19 @@ function relTime(iso: string): string {
   return '';
 }
 
+/** One-line summary of an active filter, e.g. `message: "fix" · file: "src/ai"`. */
+export function describeFilter(f: CommitFilter): string {
+  const parts: string[] = [];
+  if (f.message?.trim()) parts.push(`message: "${f.message.trim()}"`);
+  if (f.path?.trim()) parts.push(`file: "${f.path.trim()}"`);
+  return parts.join(' · ');
+}
+
 export class ChangesView implements vscode.TreeDataProvider<Node> {
   private emitter = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.emitter.event;
   private timer?: NodeJS.Timeout;
+  private commitFilter: CommitFilter = {};
 
   constructor(
     private readonly getRoot: () => Promise<string | undefined>,
@@ -51,6 +61,22 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
     return !!this.commitMessages && this.commitMessages.mode() !== 'off';
   }
 
+  get filter(): CommitFilter {
+    return { ...this.commitFilter };
+  }
+
+  get filtered(): boolean {
+    return hasCommitFilter(this.commitFilter);
+  }
+
+  /** Replace the commit filter and redraw at once (no debounce: the user is waiting for the result). */
+  setFilter(filter: CommitFilter): void {
+    const clean = (s?: string) => s?.trim() || undefined;
+    this.commitFilter = { message: clean(filter.message), path: clean(filter.path) };
+    clearTimeout(this.timer);
+    this.emitter.fire();
+  }
+
   refresh(): void {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.emitter.fire(), 1500);
@@ -61,15 +87,17 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
     if (!root) return [];
     if (!el) {
       const count = await countWorkingChanges(root);
-      const commits = await listCommits(root, settings().commitCount);
+      const filtered = this.filtered;
+      const commits = await listCommits(root, settings().commitCount, undefined, filtered ? this.commitFilter : undefined);
       if (commits.length) this.onCommitsListed?.(root, commits);
       return [
         ...(count ? [{ kind: 'working', count } as Node] : []),
         { kind: 'compare' },
-        { kind: 'header', label: 'Recent commits' },
+        { kind: 'header', label: filtered ? 'Matching commits' : 'Recent commits' },
+        ...(filtered ? [{ kind: 'filter', filter: this.filter } as Node] : []),
         ...(commits.length
           ? commits.map((c) => ({ kind: 'commit', commit: c, cached: !!this.isCommitCached?.(root, c.sha) }) as Node)
-          : [{ kind: 'empty', label: 'No commits yet' } as Node]),
+          : [{ kind: 'empty', label: filtered ? 'No commits match the filter' : 'No commits yet' } as Node]),
       ];
     }
     if (el.kind === 'working' && this.commitMessages && this.commitMessagesOn()) {
@@ -121,6 +149,15 @@ export class ChangesView implements vscode.TreeDataProvider<Node> {
       case 'header': {
         const t = new vscode.TreeItem(n.label.toUpperCase());
         t.description = '';
+        return t;
+      }
+      case 'filter': {
+        const t = new vscode.TreeItem(describeFilter(n.filter));
+        t.id = 'filter';
+        t.contextValue = 'commitFilter';
+        t.iconPath = new vscode.ThemeIcon('filter-filled');
+        t.command = { command: 'prThis.filterCommits', title: 'Edit Filter' };
+        t.tooltip = 'Searching all history. Click to change the filter.';
         return t;
       }
       case 'empty':
