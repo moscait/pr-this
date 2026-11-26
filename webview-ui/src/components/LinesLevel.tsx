@@ -8,6 +8,7 @@ import { Icon, SeverityIcon } from './Icons';
 import { Markdown, inline } from './Markdown';
 import { send } from '../vscode';
 import { DiagnosticPills, describeCounts, countDiagnostics, shownDiagnostics, statusText } from './Diagnostics';
+import { FileMetricsPanel, MetricsBadge } from './Metrics';
 
 const MAX_LINES_PER_HUNK = 400;
 
@@ -81,6 +82,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
                 <FileName file={file} />
                 <DiffBar add={file.additions} del={file.deletions} />
                 <DiagnosticPills diagnostics={shownDiagnostics(file)} />
+                <MetricsBadge file={file} />
               </div>
               <div className="file-head-actions">
                 <button className={`btn ghost ${notes ? 'on' : ''}`} onClick={() => setNotes(!notes)} title="Toggle AI notes">
@@ -98,6 +100,7 @@ export function LinesLevel({ state, dispatch }: { state: State; dispatch: Dispat
             </header>
             {file.oldPath && <div className="rename-note muted small">Renamed from {file.oldPath}</div>}
             {statusText(file) && <div className={`diag-status-note muted small ${file.diagnosticsStatus}`}>{statusText(file)}</div>}
+            <FileMetricsPanel file={file} />
 
             <section className="narrative card">
               {d ? (

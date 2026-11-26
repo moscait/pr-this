@@ -195,6 +195,26 @@ PR This shows the problems your installed language extensions and linters report
 - A file with unsaved edits shows no results until you save it.
 - A file no language extension looked at shows no count rather than "no problems".
 
+## Code metrics
+
+Opt-in, deterministic metrics for **Java, JavaScript, TypeScript and C#**, measured on both sides of every change so you can see whether it made the code more or less complex. Turn languages on with `prThis.metrics.languages` in your user settings, for example `["typescript", "java"]`. Metrics are off by default.
+
+**What is measured**
+- Per function: **cyclomatic complexity** (McCabe: 1 plus each `if`, loop, `case`, `catch`, `?:`, `&&`, `||` and `??`), **nesting depth** of control structures, **parameter count** and **length** in lines.
+- Per file: total complexity, code lines, comment lines and number of functions.
+- Java and C# lambdas count toward the method that contains them. In JavaScript and TypeScript, each function, including each arrow function, is measured on its own, as ESLint does. Declarations without a body (abstract and interface methods, C# `get;` auto-properties) are not counted.
+
+**Where to find it**
+- **Intent**: a *Code metrics* card with complexity, functions over 10 and code lines before → after across the change, and the functions whose complexity rose the most.
+- **Files**: a `CC before → after` pill on each file card, amber when complexity rose and green when it fell.
+- **Lines**: a table of the functions whose metrics changed (added, removed or changed), with links to each function. Functions above 10 are marked *complex*.
+
+**How it works**
+- Files are parsed with [tree-sitter](https://tree-sitter.github.io/), the same parser many editors use, so the numbers do not depend on which extensions you have installed. Results for older versions come straight from git, so commits and branch comparisons are measured exactly as they were, with no checkout.
+- Each result is cached by the file content's git hash in VS Code's global storage (`globalStorageUri/metrics`). A version of a file is only ever measured once.
+- The first time a language is used, its parser (0.4–5 MB) is downloaded once from that grammar's official GitHub release and checked against a SHA-256 checksum pinned in the extension. A file that does not match is never loaded. Parsers are stored in `globalStorageUri/grammars`.
+- Files over 1 MB, binary files and files that commonly hold secrets are not measured. A file with syntax errors is still measured, with a note that the numbers may be off.
+
 ---
 
 ## Keyboard Shortcuts
@@ -228,6 +248,7 @@ PR This shows the problems your installed language extensions and linters report
 | `prThis.commitCount` | `50` | Workspace | Number of recent commits to list in the sidebar. |
 | `prThis.commitMessages` | `"background"` | User (`machine`) | Commit message suggestions under Uncommitted changes: `background`, `onClick`, or `off`. |
 | `prThis.backgroundPrewarm` | `"local"` | User (`machine`) | Pre-compute explanations in the background while idle: `local` only for providers that keep code on this machine, `always` for every provider (this spends cloud API calls on changes you may never open), or `off`. Can only be set in user settings. |
+| `prThis.metrics.languages` | `[]` | User (`machine`) | Languages to measure [code metrics](#code-metrics) for: any of `java`, `javascript`, `typescript`, `csharp`. A language's parser is downloaded the first time it is used. Can only be set in user settings. |
 | `prThis.staticAnalysis` | `"openFiles"` | Workspace | Show problems language extensions report on changed lines: `openFiles` opens changed files in the background so they get analysed, `reportedOnly` uses only what is already reported (usually just files open in an editor), `off` turns it off. |
 
 ---
@@ -264,6 +285,10 @@ if (api?.version === 1) await api.reviewRange(clonePath, lastSeenSha, 'origin/ma
   - Generated overviews and file explanations (which paraphrase your code changes) are cached as plain-text JSON files in VS Code's extension global storage directory (`globalStorageUri/cache`), keyed by a SHA-256 hash of the prompt and provider configuration.
   - The cache keeps at most **2,000 entries** and automatically prunes entries unused for more than **30 days**.
   - Run **`PR This: Clear Explanation Cache`** (`prThis.clearCache`) from the Command Palette at any time to delete all cached explanations from disk.
+- **Code metrics** (off unless you turn on `prThis.metrics.languages`):
+  - Measured entirely on this machine; no code, file name or metric is sent anywhere.
+  - The only network request is a one-time download of each enabled language's parser from `github.com/tree-sitter`, verified against a pinned SHA-256 checksum before it is used.
+  - Results (numbers and function names) are cached in `globalStorageUri/metrics`. Delete that folder to remove them.
 - **Credentials & Workspace Isolation**:
   - API keys are stored in OS-backed VS Code `SecretStorage` (scoped per origin for `openaiCompatible` and `llmGateway` servers).
-  - Security-sensitive settings (`prThis.provider`, `prThis.model`, `prThis.baseUrl`, `prThis.maxDiffChars`, `prThis.sendSecretFiles`, and `prThis.backgroundPrewarm`) are `machine`-scoped and cannot be overridden by a repository's `.vscode/settings.json`.
+  - Security-sensitive settings (`prThis.provider`, `prThis.model`, `prThis.baseUrl`, `prThis.maxDiffChars`, `prThis.sendSecretFiles`, `prThis.backgroundPrewarm`, and `prThis.metrics.languages`) are `machine`-scoped and cannot be overridden by a repository's `.vscode/settings.json`.

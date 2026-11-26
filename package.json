@@ -422,6 +422,28 @@
           "maxLength": 40,
           "description": "Language the AI should write explanations in."
         },
+        "prThis.metrics.languages": {
+          "type": "array",
+          "scope": "machine",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "java",
+              "javascript",
+              "typescript",
+              "csharp"
+            ],
+            "enumDescriptions": [
+              "Java (.java)",
+              "JavaScript (.js, .mjs, .cjs, .jsx)",
+              "TypeScript (.ts, .mts, .cts, .tsx)",
+              "C# (.cs)"
+            ]
+          },
+          "markdownDescription": "Languages to measure code metrics for in the Change Lens: per-function cyclomatic complexity, length, nesting depth and parameter count, and line counts, before and after each change. Measured locally; your code is never sent anywhere. Off by default. **The first time a language is used, its parser (about 0.4–5 MB, from the official tree-sitter GitHub release) is downloaded once and checked against a pinned checksum.** Can only be set in user settings."
+        },
         "prThis.commitCount": {
           "type": "number",
           "default": 50,
@@ -529,5 +551,8 @@
   },
   "overrides": {
     "minimatch": "^11.0.9"
+  },
+  "dependencies": {
+    "web-tree-sitter": "0.27.2"
   }
 }

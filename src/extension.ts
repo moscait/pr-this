@@ -5,6 +5,7 @@ import { configureProvider, decisionEngineConfig, prewarmContext, runContext, se
 import { RelevanceScorer } from './ai/relevance';
 import { BackgroundQueue, prewarmSessionFiles } from './ai/prewarm';
 import { StaticAnalysis } from './staticAnalysis';
+import { createSessionMetrics } from './codeMetrics';
 import { ChangesView, describeFilter } from './changesView';
 import { CommitMessages, isCommitMessageStyle, pickCommitMessageStyle, type CommitMessageStyle } from './commitMessage';
 import { cleanContext, type PrThisApi } from './api';
@@ -40,7 +41,8 @@ async function currentRoot(interactive: boolean): Promise<string | undefined> {
 export function activate(ctx: vscode.ExtensionContext): PrThisApi {
   const bg = new BackgroundQueue();
   const analysis = new StaticAnalysis();
-  ctx.subscriptions.push(analysis);
+  const codeMetrics = createSessionMetrics(ctx);
+  ctx.subscriptions.push(analysis, codeMetrics);
   const log = vscode.window.createOutputChannel('PR This', { log: true });
   ctx.subscriptions.push(log);
   const relevance = new RelevanceScorer(decisionEngineConfig, (level, message) => log[level](message));
@@ -168,7 +170,7 @@ export function activate(ctx: vscode.ExtensionContext): PrThisApi {
         return;
       }
       for (const n of session.notices ?? []) void vscode.window.showWarningMessage(`PR This: ${n}`);
-      LensPanel.show(ctx, analyzer, bg, analysis, session, refresh, markOverviewCached);
+      LensPanel.show(ctx, analyzer, bg, analysis, codeMetrics.metrics, session, refresh, markOverviewCached);
     } catch (e) {
       vscode.window.showErrorMessage(`PR This: ${(e as Error).message}`);
     }
@@ -356,6 +358,7 @@ export function activate(ctx: vscode.ExtensionContext): PrThisApi {
         LensPanel.broadcastProvider(ctx.secrets);
         view.refresh();
       }
+      if (e.affectsConfiguration('prThis.metrics')) LensPanel.remeasure();
     }),
     vscode.window.onDidChangeActiveTextEditor(async () => {
       const prev = lastRoot;

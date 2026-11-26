@@ -93,6 +93,11 @@ export function reducer(s: State, a: Action): State {
       const files = s.session.files.map((f) => (f.path === a.path ? { ...f, diagnostics: a.diagnostics, diagnosticsStatus: a.status } : f));
       return { ...s, session: { ...s.session, files } };
     }
+    case 'file:metrics': {
+      if (!s.session) return s;
+      const files = s.session.files.map((f) => (f.path === a.path ? { ...f, metrics: a.metrics, metricsStatus: a.status, metricsNote: a.note } : f));
+      return { ...s, session: { ...s.session, files } };
+    }
     case 'zoom': {
       if (a.level === s.level && !a.file && a.component === undefined) return s;
       return {
